@@ -1,0 +1,1179 @@
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import {
+  Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Heart, Ruler, Scale,
+  Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, Copy, LogOut,
+  ChevronRight, Link2, ListOrdered
+} from "lucide-react";
+
+/* ───────── defaults & utils ───────── */
+
+const DEFAULT_PROGRAM = {
+  "Пн": { title: "Свежие плечи + База", exercises: [
+    { name: "Махи гантелями в стороны", target: "3×12–15" },
+    { name: "Жим ногами в тренажере", target: "3×10–12" },
+    { name: "Жим гантелей лежа (гориз.)", target: "3×8–10" },
+    { name: "Тяга верхнего блока к груди", target: "3×10–12" },
+    { name: "Разгибания на блоке (канат)", target: "3×10–12" },
+  ]},
+  "Ср": { title: "3D-плечи + Брахиалис + Спина", exercises: [
+    { name: "Жим гантелей на накл. (30°)", target: "3×8–10" },
+    { name: "Махи в наклоне / Бабочка", target: "3×12–15" },
+    { name: "Тяга блока к поясу (сидя)", target: "3×10–12" },
+    { name: "«Хаммеры» с гантелями", target: "3×10–12" },
+    { name: "Сгибания ног в тренажере", target: "3×10–12" },
+  ]},
+  "Пт": { title: "Плечи + Суперобъём на руки", exercises: [
+    { name: "Приседания (Смит / Гоблет)", target: "3×10–12" },
+    { name: "Жим гантелей сидя (плечи)", target: "3×10–12" },
+    { name: "Тяга гантели 1 рукой в упоре", target: "3×10–12" },
+    { name: "Кроссовер / Бабочка (грудь)", target: "3×12–15" },
+    { name: "Сгибания на бицепс", target: "3×10–12" },
+    { name: "Фр. жим из-за головы (триц)", target: "3×10–12" },
+  ]},
+};
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+const genCode = () => Array.from({ length: 6 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
+const parseNumSets = (target) => { const m = String(target).match(/^(\d+)/); return m ? parseInt(m[1], 10) : 3; };
+const setVolume = (sets) => sets.reduce((sum, s) => { const w = parseFloat(s.weight); const r = parseFloat(s.reps); return sum + (isNaN(w) || isNaN(r) ? 0 : w * r); }, 0);
+const fmtVol = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}т` : `${Math.round(v)}кг`);
+
+function storageGet(key) {
+  try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.error(e); }
+}
+
+function useStorage(key, fallback) {
+  const [data, setData] = useState(fallback);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const stored = storageGet(key);
+    if (stored !== null) setData(stored);
+    setLoaded(true);
+  }, [key]);
+  const persist = useCallback((next) => { setData(next); storageSet(key, next); }, [key]);
+  return [data, persist, loaded];
+}
+
+function useProgram() {
+  const [program, persist, loaded] = useStorage("workout-program", DEFAULT_PROGRAM);
+  useEffect(() => {
+    if (loaded && localStorage.getItem("workout-program") === null) {
+      storageSet("workout-program", DEFAULT_PROGRAM);
+    }
+  }, [loaded]);
+  return [program, persist, loaded];
+}
+
+const inputStyle = {
+  background: "#1e1b15", border: "1px solid #3a3527", color: "#ece6d9",
+  borderRadius: 6, padding: "8px 10px", fontSize: 15, width: "100%", fontFamily: "'Inter', sans-serif"
+};
+
+const globalStyles = `
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; }
+  .display { font-family: 'Bebas Neue', 'Inter', sans-serif; letter-spacing: 0.02em; }
+  input[type="number"], input[type="date"], input[type="text"], textarea, select {
+    background: #1e1b15; border: 1px solid #3a3527; color: #ece6d9;
+    border-radius: 6px; padding: 8px 10px; font-size: 15px; width: 100%;
+    font-family: 'Inter', sans-serif;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: #c98f2f; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #3a3527; border-radius: 3px; }
+  button { font-family: 'Inter', sans-serif; cursor: pointer; }
+`;
+
+/* ───────── root app ───────── */
+
+export default function App() {
+  const [role, setRole] = useState(null);
+  const [roleLoaded, setRoleLoaded] = useState(false);
+
+  useEffect(() => {
+    const saved = storageGet("app-role");
+    if (saved) setRole(saved);
+    setRoleLoaded(true);
+  }, []);
+
+  const chooseRole = (r) => { setRole(r); storageSet("app-role", r); };
+  const resetRole = () => { setRole(null); localStorage.removeItem("app-role"); };
+
+  if (!roleLoaded) return null;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#15130f", color: "#ece6d9", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <style>{globalStyles}</style>
+      {!role ? (
+        <RoleChooser onChoose={chooseRole} />
+      ) : role === "trainer" ? (
+        <TrainerApp onSwitchRole={chooseRole} onResetRole={resetRole} />
+      ) : (
+        <ClientApp onSwitchRole={chooseRole} onResetRole={resetRole} />
+      )}
+    </div>
+  );
+}
+
+/* ───────── role chooser ───────── */
+
+function RoleChooser({ onChoose }) {
+  return (
+    <div>
+      <div style={{ borderBottom: "1px solid #2a2620" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>PROGRESS</span>
+            <span style={{ fontSize: 13, color: "#7a7362", fontWeight: 500 }}>тренер + клиент</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        <div style={{ padding: "40px 0", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 14, color: "#a89f88", marginBottom: 6 }}>Кто вы?</div>
+          <ChoiceCard icon={<Users size={22} color="#e0a940" />} title="Я тренер"
+            desc="Составляю программы клиентам и слежу за их прогрессом"
+            onClick={() => onChoose("trainer")} />
+          <ChoiceCard icon={<User size={22} color="#e0a940" />} title="Я клиент"
+            desc="Веду журнал тренировок и показателей тела"
+            onClick={() => onChoose("client")} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChoiceCard({ icon, title, desc, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      textAlign: "left", background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 12,
+      padding: 18, display: "flex", gap: 14, alignItems: "flex-start", width: "100%"
+    }}>
+      <div style={{ marginTop: 2 }}>{icon}</div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 13, color: "#7a7362" }}>{desc}</div>
+      </div>
+      <ChevronRight size={18} color="#5a5545" style={{ marginLeft: "auto", flexShrink: 0 }} />
+    </button>
+  );
+}
+
+function RoleSwitcher({ role, onSwitchRole, onResetRole }) {
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      <RoleTab active={role === "trainer"} onClick={() => onSwitchRole("trainer")} icon={<Users size={16} />} label="Тренер" />
+      <RoleTab active={role === "client"} onClick={() => onSwitchRole("client")} icon={<User size={16} />} label="Клиент" />
+      <button onClick={onResetRole} title="Сменить роль" style={{
+        marginLeft: "auto", background: "none", border: "none", color: "#5a5545", fontSize: 11, padding: "4px 8px"
+      }}>выход</button>
+    </div>
+  );
+}
+
+function RoleTab({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 7, padding: "10px 16px",
+      background: "transparent", border: "none", borderBottom: active ? "2px solid #e0a940" : "2px solid transparent",
+      color: active ? "#e0a940" : "#7a7362", fontWeight: 600, fontSize: 14.5
+    }}>{icon}{label}</button>
+  );
+}
+
+/* ───────── CLIENT APP (tracker) ───────── */
+
+function ClientApp({ onSwitchRole, onResetRole }) {
+  const [tab, setTab] = useState("workout");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [program, persistProgram, programLoaded] = useProgram();
+  const reload = () => setReloadKey((k) => k + 1);
+
+  const exportData = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      workoutProgram: storageGet("workout-program") || DEFAULT_PROGRAM,
+      workoutLogs: storageGet("workout-logs") || {},
+      bodyMetrics: storageGet("body-metrics") || {},
+      profile: storageGet("user-profile") || {},
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zhurnal-${todayISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        if (data.workoutProgram) storageSet("workout-program", data.workoutProgram);
+        if (data.workoutLogs) storageSet("workout-logs", data.workoutLogs);
+        if (data.bodyMetrics) storageSet("body-metrics", data.bodyMetrics);
+        if (data.profile) storageSet("user-profile", data.profile);
+        reload();
+      } catch { alert("Не удалось прочитать файл. Проверь формат JSON."); }
+    };
+    input.click();
+  };
+
+  if (!programLoaded) return null;
+
+  return (
+    <>
+      <div style={{ borderBottom: "1px solid #2a2620", position: "sticky", top: 0, background: "#15130f", zIndex: 10 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px 0" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>ЖУРНАЛ</span>
+              <span style={{ fontSize: 13, color: "#7a7362", fontWeight: 500 }}>тренировок</span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <IconBtn onClick={exportData} title="Скачать резервную копию"><Download size={16} /></IconBtn>
+              <IconBtn onClick={importData} title="Загрузить резервную копию"><Upload size={16} /></IconBtn>
+            </div>
+          </div>
+          <RoleSwitcher role="client" onSwitchRole={onSwitchRole} onResetRole={onResetRole} />
+          <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
+            <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
+            <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
+            <TabButton active={tab === "program"} onClick={() => setTab("program")} icon={<ListOrdered size={16} />} label="Программа" />
+            <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
+          </div>
+        </div>
+      </div>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        {tab === "workout" && <WorkoutTab key={reloadKey} program={program} />}
+        {tab === "metrics" && <MetricsTab key={reloadKey} />}
+        {tab === "program" && <ProgramTab program={program} persistProgram={persistProgram} />}
+        {tab === "profile" && <ProfileTab key={reloadKey} program={program} />}
+      </div>
+    </>
+  );
+}
+
+function IconBtn({ onClick, title, children }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      background: "#211e17", border: "1px solid #3a3527", borderRadius: 6,
+      color: "#a89f88", padding: "6px 8px", display: "flex", alignItems: "center"
+    }}>{children}</button>
+  );
+}
+
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 7, padding: "10px 16px", whiteSpace: "nowrap",
+      background: "transparent", border: "none", borderBottom: active ? "2px solid #e0a940" : "2px solid transparent",
+      color: active ? "#e0a940" : "#7a7362", fontWeight: 600, fontSize: 14.5, transition: "color .15s"
+    }}>{icon}{label}</button>
+  );
+}
+
+function SubTab({ active, onClick, label }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: "8px 14px", borderRadius: 8, border: "1px solid " + (active ? "#e0a940" : "#3a3527"),
+      background: active ? "#e0a940" : "none", color: active ? "#15130f" : "#a89f88", fontWeight: 600, fontSize: 13
+    }}>{label}</button>
+  );
+}
+
+/* ───────── PROGRAM TAB (editable) ───────── */
+
+function ProgramTab({ program, persistProgram }) {
+  const [draft, setDraft] = useState(program);
+  const [saved, setSaved] = useState(false);
+  const [newDayKey, setNewDayKey] = useState("");
+  const [newDayTitle, setNewDayTitle] = useState("");
+  const [addingDay, setAddingDay] = useState(false);
+
+  useEffect(() => { setDraft(program); }, [program]);
+
+  const dayKeys = Object.keys(draft);
+
+  const save = () => {
+    persistProgram(draft);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  const addDay = () => {
+    const key = newDayKey.trim();
+    const title = newDayTitle.trim() || key;
+    if (!key || draft[key]) return;
+    setDraft({ ...draft, [key]: { title, exercises: [] } });
+    setNewDayKey(""); setNewDayTitle(""); setAddingDay(false);
+  };
+
+  const removeDay = (key) => {
+    const next = { ...draft };
+    delete next[key];
+    setDraft(next);
+  };
+
+  const updateDayTitle = (key, title) => {
+    setDraft({ ...draft, [key]: { ...draft[key], title } });
+  };
+
+  const addExercise = (dayKey) => {
+    setDraft({
+      ...draft,
+      [dayKey]: {
+        ...draft[dayKey],
+        exercises: [...draft[dayKey].exercises, { name: "Новое упражнение", target: "3×10–12" }],
+      },
+    });
+  };
+
+  const updateExercise = (dayKey, idx, field, value) => {
+    const exs = [...draft[dayKey].exercises];
+    exs[idx] = { ...exs[idx], [field]: value };
+    setDraft({ ...draft, [dayKey]: { ...draft[dayKey], exercises: exs } });
+  };
+
+  const removeExercise = (dayKey, idx) => {
+    const exs = [...draft[dayKey].exercises];
+    exs.splice(idx, 1);
+    setDraft({ ...draft, [dayKey]: { ...draft[dayKey], exercises: exs } });
+  };
+
+  const moveExercise = (dayKey, idx, dir) => {
+    const exs = [...draft[dayKey].exercises];
+    const target = idx + dir;
+    if (target < 0 || target >= exs.length) return;
+    [exs[idx], exs[target]] = [exs[target], exs[idx]];
+    setDraft({ ...draft, [dayKey]: { ...draft[dayKey], exercises: exs } });
+  };
+
+  return (
+    <div>
+      <div style={{ margin: "18px 0 14px", fontSize: 13, color: "#7a7362" }}>
+        Редактируй дни и упражнения. Изменения применятся во вкладке «Тренировки» после сохранения.
+      </div>
+
+      {dayKeys.length === 0 && (
+        <div style={{ fontSize: 13.5, color: "#7a7362", textAlign: "center", padding: "20px 0" }}>
+          Добавь первый день программы
+        </div>
+      )}
+
+      {dayKeys.map((key) => (
+        <div key={key} style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: "#7a7362", marginBottom: 4 }}>Кнопка дня: <span style={{ color: "#e0a940", fontWeight: 700 }}>{key}</span></div>
+              <input type="text" value={draft[key].title} onChange={(e) => updateDayTitle(key, e.target.value)}
+                placeholder="Название (напр. Понедельник — Спина)" style={inputStyle} />
+            </div>
+            <button onClick={() => removeDay(key)} style={{ background: "none", border: "none", padding: 6, flexShrink: 0 }}>
+              <Trash2 size={16} color="#a85a4a" />
+            </button>
+          </div>
+
+          {draft[key].exercises.map((ex, i) => (
+            <div key={i} style={{
+              display: "flex", gap: 8, alignItems: "center", padding: "8px 0",
+              borderTop: i > 0 ? "1px solid #2a2620" : "none"
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <button onClick={() => moveExercise(key, i, -1)} disabled={i === 0} style={{
+                  background: "none", border: "none", padding: 0, color: i === 0 ? "#3a3527" : "#7a7362"
+                }}><ChevronUp size={14} /></button>
+                <button onClick={() => moveExercise(key, i, 1)} disabled={i === draft[key].exercises.length - 1} style={{
+                  background: "none", border: "none", padding: 0, color: i === draft[key].exercises.length - 1 ? "#3a3527" : "#7a7362"
+                }}><ChevronDown size={14} /></button>
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                <input type="text" value={ex.name} onChange={(e) => updateExercise(key, i, "name", e.target.value)} placeholder="Название упражнения" />
+                <input type="text" value={ex.target} onChange={(e) => updateExercise(key, i, "target", e.target.value)} placeholder="3×10–12" style={{ fontSize: 13 }} />
+              </div>
+              <button onClick={() => removeExercise(key, i)} style={{ background: "none", border: "none", padding: 4 }}>
+                <Trash2 size={14} color="#5a5545" />
+              </button>
+            </div>
+          ))}
+
+          <button onClick={() => addExercise(key)} style={{
+            display: "flex", alignItems: "center", gap: 4, background: "none", border: "none",
+            color: "#c98f2f", fontSize: 12.5, fontWeight: 600, marginTop: 8, padding: 0
+          }}><Plus size={13} /> упражнение</button>
+        </div>
+      ))}
+
+      {addingDay ? (
+        <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 12.5, color: "#a89f88", fontWeight: 600, marginBottom: 6 }}>Новый день</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input type="text" value={newDayKey} onChange={(e) => setNewDayKey(e.target.value)} placeholder="Короткое имя (напр. Пн, Вт)" />
+            <input type="text" value={newDayTitle} onChange={(e) => setNewDayTitle(e.target.value)} placeholder="Полное название (напр. Понедельник — Спина)" />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={addDay} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#15130f", fontWeight: 700 }}>Добавить</button>
+            <button onClick={() => setAddingDay(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #3a3527", background: "none", color: "#a89f88" }}>Отмена</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAddingDay(true)} style={{
+          width: "100%", padding: "12px 0", borderRadius: 10, border: "1px dashed #3a3527",
+          background: "none", color: "#e0a940", fontWeight: 700, fontSize: 13.5, marginBottom: 12,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+        }}><Plus size={15} /> Добавить день</button>
+      )}
+
+      <button onClick={save} style={{
+        width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#15130f", fontWeight: 800, fontSize: 15,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить программу</>}</button>
+    </div>
+  );
+}
+
+/* ───────── WORKOUT TAB ───────── */
+
+function WorkoutTab({ program }) {
+  const [logs, persist, loaded] = useStorage("workout-logs", {});
+  const dayKeys = Object.keys(program);
+  const [day, setDay] = useState(dayKeys[0] || "");
+  const [date, setDate] = useState(todayISO());
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => {
+    if (dayKeys.length && !dayKeys.includes(day)) setDay(dayKeys[0]);
+  }, [program, day, dayKeys]);
+
+  const entryKey = `${date}_${day}`;
+  const existing = logs[entryKey];
+  const [sets, setSets] = useState([]);
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (!day || !program[day]) return;
+    const entry = logs[`${date}_${day}`];
+    setSets(initSets(program, day, entry));
+    setNotes(entry?.notes ?? "");
+  }, [day, date, loaded, program]); // eslint-disable-line
+
+  if (!dayKeys.length) {
+    return (
+      <div style={{ padding: "40px 0", textAlign: "center", color: "#7a7362", fontSize: 14 }}>
+        Программа пуста — добавь дни во вкладке «Программа»
+      </div>
+    );
+  }
+
+  function initSets(prog, d, existingEntry) {
+    const exs = prog[d]?.exercises || [];
+    return exs.map((ex) => {
+      const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
+      const numSets = parseNumSets(ex.target);
+      return {
+        name: ex.name, target: ex.target,
+        sets: prev?.sets?.length ? prev.sets : Array.from({ length: numSets }, () => ({ weight: "", reps: "" })),
+      };
+    });
+  }
+
+  const updateSet = (exIdx, setIdx, field, value) => {
+    setSets((prev) => {
+      const next = [...prev];
+      next[exIdx] = { ...next[exIdx], sets: [...next[exIdx].sets] };
+      next[exIdx].sets[setIdx] = { ...next[exIdx].sets[setIdx], [field]: value };
+      return next;
+    });
+  };
+
+  const addSet = (exIdx) => {
+    setSets((prev) => {
+      const next = [...prev];
+      next[exIdx] = { ...next[exIdx], sets: [...next[exIdx].sets, { weight: "", reps: "" }] };
+      return next;
+    });
+  };
+
+  const [saved, setSaved] = useState(false);
+  const handleSave = () => {
+    persist({ ...logs, [entryKey]: { date, day, exercises: sets, notes } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  const totalVolume = sets.reduce((sum, ex) => sum + setVolume(ex.sets), 0);
+
+  const lastTimeFor = (exName) => {
+    const candidates = Object.values(logs).filter((l) => l.day === day && l.date !== date).sort((a, b) => (a.date < b.date ? 1 : -1));
+    for (const c of candidates) {
+      const ex = c.exercises.find((e) => e.name === exName);
+      const done = ex?.sets?.filter((s) => s.weight && s.reps);
+      if (done?.length) return { date: c.date, sets: done };
+    }
+    return null;
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, margin: "18px 0 14px", flexWrap: "wrap" }}>
+        {dayKeys.map((d) => (
+          <button key={d} onClick={() => setDay(d)} style={{
+            flex: dayKeys.length <= 4 ? 1 : "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, fontSize: 14,
+            background: day === d ? "#e0a940" : "#211e17", color: day === d ? "#15130f" : "#a89f88",
+            border: "1px solid " + (day === d ? "#e0a940" : "#3a3527"),
+          }}>{d}</button>
+        ))}
+      </div>
+
+      <div className="display" style={{ fontSize: 22, color: "#ece6d9", marginBottom: 4 }}>{program[day]?.title}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+        <Calendar size={15} color="#7a7362" />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
+      </div>
+
+      {sets.map((ex, exIdx) => {
+        const last = lastTimeFor(ex.name);
+        const vol = setVolume(ex.sets);
+        return (
+          <div key={ex.name + exIdx} style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{ex.name}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                {vol > 0 && <div style={{ fontSize: 12, color: "#c98f2f", fontWeight: 600 }}>{fmtVol(vol)}</div>}
+                <div style={{ fontSize: 12, color: "#7a7362" }}>{ex.target}</div>
+              </div>
+            </div>
+            {last && (
+              <div style={{ fontSize: 12, color: "#8a9e8a", marginBottom: 10 }}>
+                Прошлый раз ({fmtDate(last.date)}): {last.sets.map((s) => `${s.weight}кг×${s.reps}`).join(", ")}
+              </div>
+            )}
+            {ex.sets.map((s, setIdx) => (
+              <div key={setIdx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: "#7a7362", width: 18 }}>{setIdx + 1}</span>
+                <input type="number" placeholder="кг" value={s.weight} onChange={(e) => updateSet(exIdx, setIdx, "weight", e.target.value)} />
+                <span style={{ color: "#5a5545" }}>×</span>
+                <input type="number" placeholder="повт" value={s.reps} onChange={(e) => updateSet(exIdx, setIdx, "reps", e.target.value)} />
+              </div>
+            ))}
+            <button onClick={() => addSet(exIdx)} style={{
+              display: "flex", alignItems: "center", gap: 4, background: "none", border: "none",
+              color: "#c98f2f", fontSize: 12.5, fontWeight: 600, padding: "4px 0", marginTop: 4
+            }}><Plus size={13} /> подход</button>
+          </div>
+        );
+      })}
+
+      {totalVolume > 0 && (
+        <div style={{
+          background: "#211e17", border: "1px solid #3a3527", borderRadius: 8,
+          padding: "10px 14px", marginBottom: 10, fontSize: 13, color: "#a89f88",
+          display: "flex", justifyContent: "space-between"
+        }}>
+          <span>Общий тоннаж тренировки</span>
+          <span style={{ color: "#e0a940", fontWeight: 700 }}>{fmtVol(totalVolume)}</span>
+        </div>
+      )}
+
+      <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 12.5, color: "#a89f88", fontWeight: 600 }}>
+          <StickyNote size={15} color="#e0a940" /> Заметки
+        </div>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Самочувствие, боль, что улучшить..."
+          style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} />
+      </div>
+
+      <button onClick={handleSave} style={{
+        width: "100%", padding: "14px 0", borderRadius: 10, border: "none", marginTop: 8,
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#15130f", fontWeight: 800, fontSize: 15,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить тренировку</>}</button>
+
+      <button onClick={() => setShowHistory((v) => !v)} style={{
+        width: "100%", background: "none", border: "none", color: "#7a7362", fontSize: 13,
+        padding: "16px 0 6px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5
+      }}>
+        <TrendingUp size={14} /> Прогресс по упражнению {showHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {showHistory && <ExerciseProgress logs={logs} program={program} />}
+    </div>
+  );
+}
+
+function ExerciseProgress({ logs, program }) {
+  const allExercises = useMemo(() => {
+    const set = new Set();
+    Object.values(program).forEach((d) => d.exercises.forEach((e) => set.add(e.name)));
+    return Array.from(set);
+  }, [program]);
+  const [selected, setSelected] = useState(allExercises[0] || "");
+
+  useEffect(() => {
+    if (allExercises.length && !allExercises.includes(selected)) setSelected(allExercises[0]);
+  }, [allExercises, selected]);
+
+  const data = useMemo(() => Object.values(logs)
+    .filter((l) => l.exercises.some((e) => e.name === selected))
+    .map((l) => {
+      const ex = l.exercises.find((e) => e.name === selected);
+      const weights = ex.sets.map((s) => parseFloat(s.weight)).filter((w) => !isNaN(w));
+      const maxW = weights.length ? Math.max(...weights) : null;
+      return { date: l.date, label: fmtDate(l.date), maxW };
+    })
+    .filter((d) => d.maxW !== null)
+    .sort((a, b) => (a.date > b.date ? 1 : -1)), [logs, selected]);
+
+  if (!allExercises.length) return null;
+
+  return (
+    <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginTop: 8 }}>
+      <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ marginBottom: 12 }}>
+        {allExercises.map((e) => <option key={e} value={e}>{e}</option>)}
+      </select>
+      {data.length < 2 ? (
+        <div style={{ fontSize: 13, color: "#7a7362", padding: "20px 0", textAlign: "center" }}>
+          Недостаточно данных — записывай тренировки, чтобы видеть прогресс
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={data}>
+            <CartesianGrid stroke="#2a2620" strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fill: "#7a7362", fontSize: 11 }} axisLine={{ stroke: "#3a3527" }} />
+            <YAxis tick={{ fill: "#7a7362", fontSize: 11 }} axisLine={{ stroke: "#3a3527" }} unit="кг" width={44} />
+            <Tooltip contentStyle={{ background: "#211e17", border: "1px solid #3a3527", borderRadius: 8, fontSize: 12 }} />
+            <Line type="monotone" dataKey="maxW" stroke="#e0a940" strokeWidth={2.5} dot={{ fill: "#e0a940", r: 3.5 }} name="Макс. вес, кг" />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+/* ───────── METRICS TAB ───────── */
+
+function MetricsTab() {
+  const [metrics, persist, loaded] = useStorage("body-metrics", {});
+  const [date, setDate] = useState(todayISO());
+  const [form, setForm] = useState({ weight: "", waist: "", chest: "", sys: "", dia: "", pulse: "", sleep: "" });
+
+  useEffect(() => {
+    const e = metrics[date];
+    setForm({
+      weight: e?.weight ?? "", waist: e?.waist ?? "", chest: e?.chest ?? "",
+      sys: e?.sys ?? "", dia: e?.dia ?? "", pulse: e?.pulse ?? "", sleep: e?.sleep ?? "",
+    });
+  }, [date, loaded]); // eslint-disable-line
+
+  const [saved, setSaved] = useState(false);
+  const handleSave = () => {
+    persist({ ...metrics, [date]: { date, ...form } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  const sorted = useMemo(() => Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1)), [metrics]);
+  const chartData = sorted.map((m) => ({
+    label: fmtDate(m.date), weight: m.weight ? parseFloat(m.weight) : null, waist: m.waist ? parseFloat(m.waist) : null,
+    sys: m.sys ? parseFloat(m.sys) : null, dia: m.dia ? parseFloat(m.dia) : null, pulse: m.pulse ? parseFloat(m.pulse) : null,
+  }));
+  const isHighBP = (form.sys && parseFloat(form.sys) >= 140) || (form.dia && parseFloat(form.dia) >= 90);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 16px" }}>
+        <Calendar size={15} color="#7a7362" />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
+      </div>
+      <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Вес, кг"><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Талия, см"><input type="number" step="0.5" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#7fb3c9" />} label="Грудь, см (опц.)"><input type="number" step="0.5" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Heart size={15} color="#e0a940" />} label="Давление утро (сист./диаст.)">
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="number" placeholder="сист." value={form.sys} onChange={(e) => setForm({ ...form, sys: e.target.value })} />
+            <span style={{ color: "#5a5545" }}>/</span>
+            <input type="number" placeholder="диаст." value={form.dia} onChange={(e) => setForm({ ...form, dia: e.target.value })} />
+          </div>
+        </FieldRow>
+        <FieldRow icon={<Activity size={15} color="#e0a940" />} label="Пульс утро, уд/мин"><input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} /></FieldRow>
+        <FieldRow icon={<StickyNote size={15} color="#8a9e8a" />} label="Сон, ч (опц.)"><input type="number" step="0.5" placeholder="7.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} /></FieldRow>
+        {isHighBP && <div style={{ fontSize: 12.5, color: "#e2795a", background: "#2a1c16", border: "1px solid #4a2e20", borderRadius: 6, padding: "8px 10px", marginTop: 4 }}>Давление выше нормы (140/90) — стоит проконсультироваться с врачом.</div>}
+      </div>
+      <button onClick={handleSave} style={{
+        width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#15130f", fontWeight: 800, fontSize: 15,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить показатели</>}</button>
+      {chartData.length >= 2 && (
+        <>
+          <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
+          <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#7fb3c9" />
+          <ChartBlock title="Давление, сист./диаст." data={chartData} dataKey="sys" secondKey="dia" color="#e2795a" secondColor="#c98f2f" refLine={140} refLine2={90} />
+          <ChartBlock title="Пульс, уд/мин" data={chartData} dataKey="pulse" color="#8a9e8a" refLine={90} />
+        </>
+      )}
+      {sorted.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12.5, color: "#7a7362", marginBottom: 8, fontWeight: 600 }}>ИСТОРИЯ</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {sorted.slice().reverse().slice(0, 10).map((m) => (
+              <div key={m.date} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 6, padding: "8px 10px", color: "#a89f88" }}>
+                <span style={{ color: "#ece6d9", fontWeight: 600 }}>{fmtDate(m.date)}</span>
+                <span>{m.weight ? `${m.weight}кг` : "—"}</span>
+                <span>{m.waist ? `${m.waist}см` : "—"}</span>
+                <span>{m.sys && m.dia ? `${m.sys}/${m.dia}` : "—"}</span>
+                <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────── PROFILE TAB ───────── */
+
+function ProfileTab({ program }) {
+  const [profile, persist, loaded] = useStorage("user-profile", { name: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
+  const [form, setForm] = useState(profile);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { if (loaded) setForm(profile); }, [loaded, profile]);
+
+  const handleSave = () => { persist(form); setSaved(true); setTimeout(() => setSaved(false), 1800); };
+
+  const latestWeight = useMemo(() => {
+    const metrics = storageGet("body-metrics") || {};
+    const sorted = Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1));
+    const last = sorted.filter((m) => m.weight).pop();
+    return last ? parseFloat(last.weight) : null;
+  }, [saved, loaded]);
+
+  const computedBmi = latestWeight && form.height ? (latestWeight / Math.pow(parseFloat(form.height) / 100, 2)).toFixed(1) : null;
+  const workoutCount = useMemo(() => Object.keys(storageGet("workout-logs") || {}).length, [saved, loaded]);
+
+  return (
+    <div>
+      <div style={{ margin: "18px 0 14px", fontSize: 13, color: "#7a7362" }}>Базовые параметры — заполни один раз, обновляй по необходимости.</div>
+      <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Имя (опц.)"><input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Как к тебе обращаться" style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Рост, см"><input type="number" value={form.height} onChange={(e) => setForm({ ...form, height: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Calendar size={15} color="#e0a940" />} label="Год рождения (опц.)"><input type="number" value={form.birthYear} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<TrendingUp size={15} color="#e0a940" />} label="Цель"><input type="text" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="Набрать массу / сбросить жир / сила..." style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Scale size={15} color="#7fb3c9" />} label="Целевой вес, кг"><input type="number" step="0.1" value={form.targetWeight} onChange={(e) => setForm({ ...form, targetWeight: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<StickyNote size={15} color="#8a9e8a" />} label="Заметки"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Травмы, ограничения, добавки..." style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} /></FieldRow>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+        <StatCard label="Тренировок" value={workoutCount || "—"} />
+        <StatCard label="BMI" value={computedBmi || "—"} hint={computedBmi ? bmiLabel(computedBmi) : "нужен рост + вес"} />
+        <StatCard label="Цель" value={form.targetWeight ? `${form.targetWeight}кг` : "—"} />
+      </div>
+      <button onClick={handleSave} style={{
+        width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#15130f", fontWeight: 800, fontSize: 15,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить профиль</>}</button>
+      <TrainerLinkSection />
+      <ProgramPreview program={program} />
+    </div>
+  );
+}
+
+function TrainerLinkSection() {
+  const [code, setCode] = useState(storageGet("client-code"));
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+
+  const link = () => {
+    const c = input.trim().toUpperCase();
+    if (!c) return;
+    setChecking(true);
+    const program = storageGet(`program-${c}`);
+    setChecking(false);
+    if (!program) { setError("Код не найден. Проверь, что тренер его передал верно."); return; }
+    storageSet("client-code", c);
+    setCode(c);
+    setError("");
+  };
+
+  const unlink = () => {
+    localStorage.removeItem("client-code");
+    setCode(null);
+    setInput("");
+  };
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ fontSize: 12.5, color: "#7a7362", marginBottom: 10, fontWeight: 600 }}>ПОДКЛЮЧЕНИЕ К ТРЕНЕРУ (ОПЦ.)</div>
+      <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14 }}>
+        {code ? (
+          <>
+            <div style={{ fontSize: 13, color: "#a89f88", marginBottom: 8 }}>Подключён. Код: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{code}</span></div>
+            <button onClick={unlink} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#7a7362", fontSize: 12, padding: 0 }}>
+              <LogOut size={13} /> Отключиться
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13, color: "#a89f88" }}>
+              <Link2 size={15} color="#e0a940" /> Введи код от тренера
+            </div>
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="K7X29Q" style={{ letterSpacing: 2, fontFamily: "monospace", textAlign: "center" }} />
+            {error && <div style={{ color: "#e2795a", fontSize: 12.5, marginTop: 8 }}>{error}</div>}
+            <button onClick={link} disabled={checking} style={{
+              width: "100%", marginTop: 10, padding: "11px 0", borderRadius: 8, border: "none",
+              background: "#e0a940", color: "#15130f", fontWeight: 700, fontSize: 13.5
+            }}>{checking ? "Проверка…" : "Подключиться"}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProgramPreview({ program }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ fontSize: 12.5, color: "#7a7362", marginBottom: 10, fontWeight: 600 }}>ТВОЯ ПРОГРАММА</div>
+      {Object.entries(program).map(([day, info]) => (
+        <div key={day} style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+          <div className="display" style={{ fontSize: 18, color: "#e0a940", marginBottom: 4 }}>{day} — {info.title}</div>
+          {info.exercises.map((ex, i) => (
+            <div key={i} style={{ fontSize: 12.5, color: "#a89f88", padding: "2px 0", display: "flex", justifyContent: "space-between" }}>
+              <span>{i + 1}. {ex.name}</span>
+              <span style={{ color: "#7a7362" }}>{ex.target}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint }) {
+  return (
+    <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 8, padding: "12px 10px", textAlign: "center" }}>
+      <div style={{ fontSize: 11, color: "#7a7362", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: "#e0a940" }}>{value}</div>
+      {hint && <div style={{ fontSize: 10, color: "#5a5545", marginTop: 2 }}>{hint}</div>}
+    </div>
+  );
+}
+
+function bmiLabel(bmi) {
+  const v = parseFloat(bmi);
+  if (v < 18.5) return "недовес";
+  if (v < 25) return "норма";
+  if (v < 30) return "избыток";
+  return "ожирение";
+}
+
+function FieldRow({ icon, label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 12.5, color: "#a89f88", fontWeight: 600 }}>{icon}{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function ChartBlock({ title, data, dataKey, secondKey, color, secondColor, refLine, refLine2 }) {
+  return (
+    <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginTop: 10 }}>
+      <div style={{ fontSize: 12.5, color: "#a89f88", fontWeight: 600, marginBottom: 8 }}>{title}</div>
+      <ResponsiveContainer width="100%" height={150}>
+        <LineChart data={data}>
+          <CartesianGrid stroke="#2a2620" strokeDasharray="3 3" />
+          <XAxis dataKey="label" tick={{ fill: "#7a7362", fontSize: 10.5 }} axisLine={{ stroke: "#3a3527" }} />
+          <YAxis tick={{ fill: "#7a7362", fontSize: 10.5 }} axisLine={{ stroke: "#3a3527" }} width={38} domain={["auto", "auto"]} />
+          <Tooltip contentStyle={{ background: "#211e17", border: "1px solid #3a3527", borderRadius: 8, fontSize: 12 }} />
+          {refLine && <ReferenceLine y={refLine} stroke="#5a4a3a" strokeDasharray="4 4" />}
+          {refLine2 && <ReferenceLine y={refLine2} stroke="#5a4a3a" strokeDasharray="4 4" />}
+          <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+          {secondKey && <Line type="monotone" dataKey={secondKey} stroke={secondColor} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ───────── TRAINER APP ───────── */
+
+function TrainerApp({ onSwitchRole, onResetRole }) {
+  const [clients, setClients] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setClients(storageGet("trainer-clients") || []);
+    setLoaded(true);
+  }, []);
+
+  const saveClients = (next) => { setClients(next); storageSet("trainer-clients", next); };
+
+  const addClient = (name) => {
+    const code = genCode();
+    const next = [...clients, { code, name }];
+    saveClients(next);
+    storageSet(`program-${code}`, { clientName: name, days: {} });
+    setSelected(code);
+  };
+
+  const removeClient = (code) => {
+    saveClients(clients.filter((c) => c.code !== code));
+    if (selected === code) setSelected(null);
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <>
+      <div style={{ borderBottom: "1px solid #2a2620", position: "sticky", top: 0, background: "#15130f", zIndex: 10 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px 0" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12 }}>
+            <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>PROGRESS</span>
+            <span style={{ fontSize: 13, color: "#7a7362", fontWeight: 500 }}>тренер</span>
+          </div>
+          <RoleSwitcher role="trainer" onSwitchRole={onSwitchRole} onResetRole={onResetRole} />
+        </div>
+      </div>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        {selected ? (
+          <ClientDetail client={clients.find((c) => c.code === selected)} onBack={() => setSelected(null)} />
+        ) : (
+          <div style={{ paddingTop: 18 }}>
+            <AddClient onAdd={addClient} />
+            <div style={{ fontSize: 12.5, color: "#7a7362", fontWeight: 600, margin: "20px 0 8px" }}>КЛИЕНТЫ ({clients.length})</div>
+            {clients.length === 0 && <div style={{ fontSize: 13.5, color: "#7a7362", textAlign: "center", padding: "30px 0" }}>Добавь первого клиента, чтобы составить ему программу</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {clients.map((c) => (
+                <div key={c.code} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: "12px 14px" }}>
+                  <div onClick={() => setSelected(c.code)} style={{ flex: 1, cursor: "pointer" }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "#7a7362", fontFamily: "monospace", letterSpacing: 1 }}>код: {c.code}</div>
+                  </div>
+                  <button onClick={() => setSelected(c.code)} style={{ background: "none", border: "none", padding: 6 }}><ChevronRight size={18} color="#7a7362" /></button>
+                  <button onClick={() => removeClient(c.code)} style={{ background: "none", border: "none", padding: 6 }}><Trash2 size={16} color="#a85a4a" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function AddClient({ onAdd }) {
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{
+        width: "100%", padding: "13px 0", borderRadius: 10, border: "1px dashed #3a3527",
+        background: "none", color: "#e0a940", fontWeight: 700, fontSize: 14,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 7
+      }}><Plus size={16} /> Добавить клиента</button>
+    );
+  }
+  return (
+    <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14 }}>
+      <div style={{ fontSize: 12.5, color: "#a89f88", fontWeight: 600, marginBottom: 6 }}>Имя клиента</div>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Иван" />
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button onClick={() => { if (name.trim()) { onAdd(name.trim()); setName(""); setOpen(false); } }}
+          style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#15130f", fontWeight: 700 }}>Создать</button>
+        <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #3a3527", background: "none", color: "#a89f88" }}>Отмена</button>
+      </div>
+    </div>
+  );
+}
+
+function ClientDetail({ client, onBack }) {
+  const [tab, setTab] = useState("program");
+  const [copied, setCopied] = useState(false);
+  const copyCode = async () => {
+    try { await navigator.clipboard.writeText(client.code); } catch { /* noop */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div style={{ paddingTop: 18 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#7a7362", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
+      <div className="display" style={{ fontSize: 26, marginBottom: 4 }}>{client.name}</div>
+      <button onClick={copyCode} style={{
+        display: "flex", alignItems: "center", gap: 6, background: "#1c1a14", border: "1px solid #2a2620",
+        borderRadius: 8, padding: "8px 12px", color: "#a89f88", fontSize: 13, marginBottom: 16
+      }}>
+        <Copy size={13} /> код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940", letterSpacing: 1 }}>{client.code}</span>
+        {copied && <span style={{ color: "#4a7a5a", marginLeft: 4 }}>скопировано</span>}
+      </button>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
+        <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
+      </div>
+      {tab === "program" ? <TrainerProgramEditor code={client.code} /> : <ClientProgressView code={client.code} />}
+    </div>
+  );
+}
+
+function TrainerProgramEditor({ code }) {
+  const [program, setProgram] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [newDayName, setNewDayName] = useState("");
+  const [addingDay, setAddingDay] = useState(false);
+
+  useEffect(() => { setProgram(storageGet(`program-${code}`)); }, [code]);
+  if (!program) return <div style={{ color: "#7a7362", fontSize: 13 }}>Загрузка…</div>;
+
+  const dayKeys = Object.keys(program.days || {});
+
+  const save = () => {
+    storageSet(`program-${code}`, program);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const addDay = () => {
+    const name = newDayName.trim();
+    if (!name || program.days[name]) return;
+    setProgram({ ...program, days: { ...program.days, [name]: [] } });
+    setNewDayName(""); setAddingDay(false);
+  };
+
+  const removeDay = (d) => {
+    const next = { ...program.days };
+    delete next[d];
+    setProgram({ ...program, days: next });
+  };
+
+  const addExercise = (d) => {
+    setProgram({ ...program, days: { ...program.days, [d]: [...program.days[d], { name: "Новое упражнение", target: "3×10–12" }] } });
+  };
+
+  const updateExercise = (d, i, field, value) => {
+    const exs = [...program.days[d]];
+    exs[i] = { ...exs[i], [field]: value };
+    setProgram({ ...program, days: { ...program.days, [d]: exs } });
+  };
+
+  const removeExercise = (d, i) => {
+    const exs = [...program.days[d]];
+    exs.splice(i, 1);
+    setProgram({ ...program, days: { ...program.days, [d]: exs } });
+  };
+
+  const moveExercise = (d, idx, dir) => {
+    const exs = [...program.days[d]];
+    const target = idx + dir;
+    if (target < 0 || target >= exs.length) return;
+    [exs[idx], exs[target]] = [exs[target], exs[idx]];
+    setProgram({ ...program, days: { ...program.days, [d]: exs } });
+  };
+
+  return (
+    <div>
+      {dayKeys.length === 0 && <div style={{ fontSize: 13.5, color: "#7a7362", textAlign: "center", padding: "20px 0" }}>Добавь первый день программы</div>}
+      {dayKeys.map((d) => (
+        <div key={d} style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>{d}</div>
+            <button onClick={() => removeDay(d)} style={{ background: "none", border: "none" }}><Trash2 size={15} color="#a85a4a" /></button>
+          </div>
+          {program.days[d].map((ex, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 0", borderTop: i > 0 ? "1px solid #2a2620" : "none" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <button onClick={() => moveExercise(d, i, -1)} disabled={i === 0} style={{ background: "none", border: "none", padding: 0, color: i === 0 ? "#3a3527" : "#7a7362" }}><ChevronUp size={14} /></button>
+                <button onClick={() => moveExercise(d, i, 1)} disabled={i === program.days[d].length - 1} style={{ background: "none", border: "none", padding: 0, color: i === program.days[d].length - 1 ? "#3a3527" : "#7a7362" }}><ChevronDown size={14} /></button>
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                <input type="text" value={ex.name} onChange={(e) => updateExercise(d, i, "name", e.target.value)} />
+                <input type="text" value={ex.target} onChange={(e) => updateExercise(d, i, "target", e.target.value)} placeholder="3×10–12" style={{ fontSize: 13 }} />
+              </div>
+              <button onClick={() => removeExercise(d, i)} style={{ background: "none", border: "none" }}><Trash2 size={13} color="#5a5545" /></button>
+            </div>
+          ))}
+          <button onClick={() => addExercise(d)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#c98f2f", fontSize: 12.5, fontWeight: 600, marginTop: 8, padding: 0 }}><Plus size={13} /> упражнение</button>
+        </div>
+      ))}
+
+      {addingDay ? (
+        <div style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 12.5, color: "#a89f88", fontWeight: 600, marginBottom: 6 }}>Название дня</div>
+          <input type="text" value={newDayName} onChange={(e) => setNewDayName(e.target.value)} placeholder="Понедельник — Спина" />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={addDay} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#15130f", fontWeight: 700 }}>Добавить</button>
+            <button onClick={() => setAddingDay(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #3a3527", background: "none", color: "#a89f88" }}>Отмена</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAddingDay(true)} style={{
+          width: "100%", padding: "12px 0", borderRadius: 10, border: "1px dashed #3a3527",
+          background: "none", color: "#e0a940", fontWeight: 700, fontSize: 13.5, marginBottom: 12,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+        }}><Plus size={15} /> Добавить день</button>
+      )}
+
+      <button onClick={save} style={{
+        width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#15130f", fontWeight: 800, fontSize: 14.5,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+      }}>{saved ? <><Check size={16} /> Сохранено</> : <><Save size={16} /> Сохранить программу</>}</button>
+    </div>
+  );
+}
+
+function ClientProgressView({ code }) {
+  const [logs, setLogs] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+
+  useEffect(() => {
+    setLogs(storageGet(`logs-${code}`) || {});
+    setMetrics(storageGet(`metrics-${code}`) || {});
+  }, [code]);
+
+  if (!logs || !metrics) return <div style={{ color: "#7a7362", fontSize: 13 }}>Загрузка…</div>;
+
+  const workoutDates = Object.values(logs).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const metricRows = Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1));
+  const chartData = metricRows.map((m) => ({ label: fmtDate(m.date), weight: m.weight ? parseFloat(m.weight) : null, waist: m.waist ? parseFloat(m.waist) : null }));
+
+  return (
+    <div>
+      {chartData.length >= 2 && (
+        <>
+          <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
+          <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#7fb3c9" />
+        </>
+      )}
+      <div style={{ fontSize: 12.5, color: "#7a7362", fontWeight: 600, margin: "18px 0 8px" }}>ПОСЛЕДНИЕ ТРЕНИРОВКИ</div>
+      {workoutDates.length === 0 && <div style={{ fontSize: 13, color: "#7a7362" }}>Клиент ещё не вносил тренировки</div>}
+      {workoutDates.slice(0, 8).map((w, i) => (
+        <div key={i} style={{ background: "#1c1a14", border: "1px solid #2a2620", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
+          <div style={{ fontSize: 12.5, color: "#e0a940", fontWeight: 700, marginBottom: 4 }}>{fmtDate(w.date)} · {w.day}</div>
+          {w.exercises.map((ex, j) => {
+            const done = ex.sets.filter((s) => s.weight && s.reps);
+            if (!done.length) return null;
+            return <div key={j} style={{ fontSize: 12, color: "#a89f88" }}>{ex.name}: {done.map((s) => `${s.weight}×${s.reps}`).join(", ")}</div>;
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
