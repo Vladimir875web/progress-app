@@ -40,6 +40,25 @@ const parseNumSets = (target) => { const m = String(target).match(/^(\d+)/); ret
 const setVolume = (sets) => sets.reduce((sum, s) => { const w = parseFloat(s.weight); const r = parseFloat(s.reps); return sum + (isNaN(w) || isNaN(r) ? 0 : w * r); }, 0);
 const fmtVol = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}т` : `${Math.round(v)}кг`);
 
+const TG_THEME_BG = "#15130f";
+
+function getTelegramWebApp() {
+  return typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
+}
+
+function getTelegramFirstName() {
+  return getTelegramWebApp()?.initDataUnsafe?.user?.first_name || "";
+}
+
+function initTelegramWebApp() {
+  const tg = getTelegramWebApp();
+  if (!tg) return;
+  tg.ready();
+  tg.expand();
+  if (typeof tg.setHeaderColor === "function") tg.setHeaderColor(TG_THEME_BG);
+  if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor(TG_THEME_BG);
+}
+
 function storageGet(key) {
   try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; }
 }
@@ -97,6 +116,7 @@ export default function App() {
   const [roleLoaded, setRoleLoaded] = useState(false);
 
   useEffect(() => {
+    initTelegramWebApp();
     const saved = storageGet("app-role");
     if (saved) setRole(saved);
     setRoleLoaded(true);
@@ -982,9 +1002,15 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
 function AddClient({ onAdd }) {
   const [name, setName] = useState("");
   const [open, setOpen] = useState(false);
+
+  const handleOpen = () => {
+    setName(getTelegramFirstName());
+    setOpen(true);
+  };
+
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={{
+      <button onClick={handleOpen} style={{
         width: "100%", padding: "13px 0", borderRadius: 10, border: "1px dashed #3a3527",
         background: "none", color: "#e0a940", fontWeight: 700, fontSize: 14,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 7
