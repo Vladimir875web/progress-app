@@ -3,8 +3,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
   Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, Copy, LogOut,
-  ChevronRight, Link2, ListOrdered
+  ChevronRight, Link2, ListOrdered, AlertCircle
 } from "lucide-react";
+import {
+  cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
+  clientExists, fetchProgram, saveProgramDays, fetchWorkoutLogsMap, fetchBodyMetricsMap
+} from "./lib/trainerDb";
+import { LinkedWorkoutTab, LinkedMetricsTab, TrainerProgramPreview } from "./linkedClientTabs";
 
 /* ───────── defaults & utils ───────── */
 
@@ -35,7 +40,6 @@ const DEFAULT_PROGRAM = {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
-const genCode = () => Array.from({ length: 6 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
 const parseNumSets = (target) => { const m = String(target).match(/^(\d+)/); return m ? parseInt(m[1], 10) : 3; };
 const setVolume = (sets) => sets.reduce((sum, s) => { const w = parseFloat(s.weight); const r = parseFloat(s.reps); return sum + (isNaN(w) || isNaN(r) ? 0 : w * r); }, 0);
 const fmtVol = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}т` : `${Math.round(v)}кг`);
@@ -213,11 +217,18 @@ function RoleTab({ active, onClick, icon, label }) {
 
 /* ───────── CLIENT APP (tracker) ───────── */
 
+function getClientCode() {
+  try { return localStorage.getItem("client-code") || null; } catch { return null; }
+}
+
 function ClientApp({ onSwitchRole, onResetRole }) {
   const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
+  const [clientCode, setClientCode] = useState(getClientCode);
   const [program, persistProgram, programLoaded] = useProgram();
   const reload = () => setReloadKey((k) => k + 1);
+  const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
+  const handleUnlink = () => { setClientCode(null); };
 
   const exportData = () => {
     const payload = {
@@ -277,16 +288,23 @@ function ClientApp({ onSwitchRole, onResetRole }) {
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
             <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
-            <TabButton active={tab === "program"} onClick={() => setTab("program")} icon={<ListOrdered size={16} />} label="Программа" />
+            {!clientCode && <TabButton active={tab === "program"} onClick={() => setTab("program")} icon={<ListOrdered size={16} />} label="Программа" />}
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
-        {tab === "workout" && <WorkoutTab key={reloadKey} program={program} />}
-        {tab === "metrics" && <MetricsTab key={reloadKey} />}
-        {tab === "program" && <ProgramTab program={program} persistProgram={persistProgram} />}
-        {tab === "profile" && <ProfileTab key={reloadKey} program={program} />}
+        {tab === "workout" && (clientCode
+          ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
+          : <WorkoutTab key={reloadKey} program={program} />)}
+        {tab === "metrics" && (clientCode
+          ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
+          : <MetricsTab key={reloadKey} />)}
+        {tab === "program" && !clientCode && <ProgramTab program={program} persistProgram={persistProgram} />}
+        {tab === "profile" && (
+          <ProfileTab key={reloadKey} program={program} clientCode={clientCode}
+            onLinked={handleLinked} onUnlink={handleUnlink} />
+        )}
       </div>
     </>
   );
@@ -879,7 +897,7 @@ function MetricsTab() {
 
 /* ───────── PROFILE TAB ───────── */
 
-function ProfileTab({ program }) {
+function ProfileTab({ program, clientCode, onLinked, onUnlink }) {
   const [profile, persist, loaded] = useStorage("user-profile", { name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
@@ -925,34 +943,44 @@ function ProfileTab({ program }) {
         background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8
       }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить профиль</>}</button>
-      <TrainerLinkSection />
-      <ProgramPreview program={program} />
+      <TrainerLinkSection clientCode={clientCode} onLinked={onLinked} onUnlink={onUnlink} />
+      {clientCode ? <TrainerProgramPreview clientCode={clientCode} /> : <ProgramPreview program={program} />}
     </div>
   );
 }
 
-function TrainerLinkSection() {
-  const [code, setCode] = useState(storageGet("client-code"));
+function TrainerLinkSection({ clientCode, onLinked, onUnlink }) {
+  const [code, setCode] = useState(clientCode || getClientCode());
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
-  const link = () => {
+  useEffect(() => { setCode(clientCode || getClientCode()); }, [clientCode]);
+
+  const link = async () => {
     const c = input.trim().toUpperCase();
     if (!c) return;
+    if (!cloudEnabled()) { setError("Облако не настроено. Администратор должен добавить Supabase в переменные окружения."); return; }
     setChecking(true);
-    const program = storageGet(`program-${c}`);
-    setChecking(false);
-    if (!program) { setError("Код не найден. Проверь, что тренер его передал верно."); return; }
-    storageSet("client-code", c);
-    setCode(c);
     setError("");
+    try {
+      const exists = await clientExists(c);
+      if (!exists) { setError("Код не найден. Проверь, что тренер его передал верно."); return; }
+      localStorage.setItem("client-code", c);
+      setCode(c);
+      onLinked?.(c);
+    } catch (e) {
+      setError(e.message || "Ошибка подключения к Supabase");
+    } finally {
+      setChecking(false);
+    }
   };
 
   const unlink = () => {
     localStorage.removeItem("client-code");
     setCode(null);
     setInput("");
+    onUnlink?.();
   };
 
   return (
@@ -1056,25 +1084,52 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
   const [clients, setClients] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [cloudError, setCloudError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setClients(storageGet("trainer-clients") || []);
-    setLoaded(true);
+    let cancelled = false;
+    (async () => {
+      if (!cloudEnabled()) {
+        if (!cancelled) { setCloudError("Supabase не настроен. Добавь VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в .env и Vercel."); setLoaded(true); }
+        return;
+      }
+      try {
+        const trainerId = await ensureTrainer();
+        const list = await fetchClients(trainerId);
+        if (!cancelled) setClients(list);
+      } catch (e) {
+        if (!cancelled) setCloudError(e.message);
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const saveClients = (next) => { setClients(next); storageSet("trainer-clients", next); };
-
-  const addClient = (name) => {
-    const code = genCode();
-    const next = [...clients, { code, name }];
-    saveClients(next);
-    storageSet(`program-${code}`, { clientName: name, days: {} });
-    setSelected(code);
+  const addClient = async (name) => {
+    setBusy(true);
+    try {
+      const trainerId = await ensureTrainer();
+      const client = await createClient(trainerId, name);
+      setClients((prev) => [...prev, client]);
+      setSelected(client.code);
+    } catch (e) {
+      alert("Ошибка: " + e.message);
+    }
+    setBusy(false);
   };
 
-  const removeClient = (code) => {
-    saveClients(clients.filter((c) => c.code !== code));
-    if (selected === code) setSelected(null);
+  const removeClient = async (code) => {
+    if (!confirm("Удалить клиента и все его данные?")) return;
+    setBusy(true);
+    try {
+      await deleteClient(code);
+      setClients((prev) => prev.filter((c) => c.code !== code));
+      if (selected === code) setSelected(null);
+    } catch (e) {
+      alert("Ошибка: " + e.message);
+    }
+    setBusy(false);
   };
 
   if (!loaded) return null;
@@ -1091,11 +1146,20 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        {cloudError && (
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 10, background: "#2a1a1a", border: "1px solid #5a3030",
+            borderRadius: 10, padding: 14, marginTop: 14, fontSize: 13, color: "#e2795a"
+          }}>
+            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>{cloudError}</div>
+          </div>
+        )}
         {selected ? (
-          <ClientDetail client={clients.find((c) => c.code === selected)} onBack={() => setSelected(null)} />
+          <ClientDetail client={clients.find((c) => c.code === selected)} onBack={() => setSelected(null)} cloudDisabled={!!cloudError} />
         ) : (
           <div style={{ paddingTop: 18 }}>
-            <AddClient onAdd={addClient} />
+            <AddClient onAdd={addClient} disabled={!!cloudError || busy} />
             <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "20px 0 8px" }}>КЛИЕНТЫ ({clients.length})</div>
             {clients.length === 0 && <div style={{ fontSize: 13.5, color: "#808a9e", textAlign: "center", padding: "30px 0" }}>Добавь первого клиента, чтобы составить ему программу</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1117,21 +1181,22 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
   );
 }
 
-function AddClient({ onAdd }) {
+function AddClient({ onAdd, disabled }) {
   const [name, setName] = useState("");
   const [open, setOpen] = useState(false);
 
   const handleOpen = () => {
+    if (disabled) return;
     setName(getTelegramFirstName());
     setOpen(true);
   };
 
   if (!open) {
     return (
-      <button onClick={handleOpen} style={{
+      <button onClick={handleOpen} disabled={disabled} style={{
         width: "100%", padding: "13px 0", borderRadius: 10, border: "1px dashed #303a50",
-        background: "none", color: "#e0a940", fontWeight: 700, fontSize: 14,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 7
+        background: "none", color: disabled ? "#5a6378" : "#e0a940", fontWeight: 700, fontSize: 14,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 7, opacity: disabled ? 0.6 : 1
       }}><Plus size={16} /> Добавить клиента</button>
     );
   }
@@ -1148,7 +1213,7 @@ function AddClient({ onAdd }) {
   );
 }
 
-function ClientDetail({ client, onBack }) {
+function ClientDetail({ client, onBack, cloudDisabled }) {
   const [tab, setTab] = useState("program");
   const [copied, setCopied] = useState(false);
   const copyCode = async () => {
@@ -1172,26 +1237,51 @@ function ClientDetail({ client, onBack }) {
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
         <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
       </div>
-      {tab === "program" ? <TrainerProgramEditor code={client.code} /> : <ClientProgressView code={client.code} />}
+      {tab === "program"
+        ? <TrainerProgramEditor code={client.code} disabled={cloudDisabled} />
+        : <ClientProgressView code={client.code} disabled={cloudDisabled} />}
     </div>
   );
 }
 
-function TrainerProgramEditor({ code }) {
+function TrainerProgramEditor({ code, disabled }) {
   const [program, setProgram] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [newDayName, setNewDayName] = useState("");
   const [addingDay, setAddingDay] = useState(false);
 
-  useEffect(() => { setProgram(storageGet(`program-${code}`)); }, [code]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (disabled || !cloudEnabled()) return;
+      try {
+        const p = await fetchProgram(code);
+        if (!cancelled) setProgram({ days: p.days || {} });
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, disabled]);
+
+  if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
+  if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
   if (!program) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
   const dayKeys = Object.keys(program.days || {});
 
-  const save = () => {
-    storageSet(`program-${code}`, program);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await saveProgramDays(code, program.days);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      alert("Ошибка сохранения: " + e.message);
+    }
+    setSaving(false);
   };
 
   const addDay = () => {
@@ -1274,24 +1364,36 @@ function TrainerProgramEditor({ code }) {
         }}><Plus size={15} /> Добавить день</button>
       )}
 
-      <button onClick={save} style={{
+      <button onClick={save} disabled={saving} style={{
         width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
         background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 14.5,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-      }}>{saved ? <><Check size={16} /> Сохранено</> : <><Save size={16} /> Сохранить программу</>}</button>
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1
+      }}>{saved ? <><Check size={16} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={16} /> Сохранить программу</>}</button>
     </div>
   );
 }
 
-function ClientProgressView({ code }) {
+function ClientProgressView({ code, disabled }) {
   const [logs, setLogs] = useState(null);
   const [metrics, setMetrics] = useState(null);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    setLogs(storageGet(`logs-${code}`) || {});
-    setMetrics(storageGet(`metrics-${code}`) || {});
-  }, [code]);
+    let cancelled = false;
+    (async () => {
+      if (disabled || !cloudEnabled()) return;
+      try {
+        const [l, m] = await Promise.all([fetchWorkoutLogsMap(code), fetchBodyMetricsMap(code)]);
+        if (!cancelled) { setLogs(l); setMetrics(m); }
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, disabled]);
 
+  if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
+  if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
   if (!logs || !metrics) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
   const workoutDates = Object.values(logs).sort((a, b) => (a.date < b.date ? 1 : -1));
