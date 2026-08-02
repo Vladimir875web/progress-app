@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import {
-  Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Heart, Ruler, Scale,
+  Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
   Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, Copy, LogOut,
   ChevronRight, Link2, ListOrdered
 } from "lucide-react";
@@ -691,17 +691,14 @@ function ExerciseProgress({ logs, program }) {
 /* ───────── METRICS TAB ───────── */
 
 const EMPTY_METRICS_FORM = {
-  weight: "", waist: "", chest: "", sys: "", dia: "", pulse: "", sleep: "",
+  waist: "", chest: "", pulse: "", sleep: "",
   custom: {},
 };
 
 function buildMetricsForm(entry, customFields) {
   const form = { ...EMPTY_METRICS_FORM, custom: { ...(entry?.custom || {}) } };
-  form.weight = entry?.weight ?? "";
   form.waist = entry?.waist ?? "";
   form.chest = entry?.chest ?? "";
-  form.sys = entry?.sys ?? "";
-  form.dia = entry?.dia ?? "";
   form.pulse = entry?.pulse ?? "";
   form.sleep = entry?.sleep ?? "";
   customFields.forEach((f) => {
@@ -730,11 +727,8 @@ function MetricsTab() {
       ...metrics,
       [date]: {
         date,
-        weight: form.weight,
         waist: form.waist,
         chest: form.chest,
-        sys: form.sys,
-        dia: form.dia,
         pulse: form.pulse,
         sleep: form.sleep,
         custom: form.custom,
@@ -772,10 +766,7 @@ function MetricsTab() {
   const sorted = useMemo(() => Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1)), [metrics]);
   const chartData = sorted.map((m) => ({
     label: fmtDate(m.date),
-    weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
-    sys: m.sys ? parseFloat(m.sys) : null,
-    dia: m.dia ? parseFloat(m.dia) : null,
     pulse: m.pulse ? parseFloat(m.pulse) : null,
     ...Object.fromEntries(customFields.map((f) => [
       f.id,
@@ -784,7 +775,6 @@ function MetricsTab() {
   }));
 
   const customChartColors = ["#e0a940", "#7a8fa8", "#6b9eb8", "#8a9ec4", "#e2795a"];
-  const isHighBP = (form.sys && parseFloat(form.sys) >= 140) || (form.dia && parseFloat(form.dia) >= 90);
 
   if (!loaded || !fieldsLoaded) return null;
 
@@ -795,16 +785,8 @@ function MetricsTab() {
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
       </div>
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Вес, кг"><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} /></FieldRow>
         <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Талия, см"><input type="number" step="0.5" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} /></FieldRow>
         <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label="Грудь, см (опц.)"><input type="number" step="0.5" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} /></FieldRow>
-        <FieldRow icon={<Heart size={15} color="#e0a940" />} label="Давление утро (сист./диаст.)">
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="number" placeholder="сист." value={form.sys} onChange={(e) => setForm({ ...form, sys: e.target.value })} />
-            <span style={{ color: "#5a6378" }}>/</span>
-            <input type="number" placeholder="диаст." value={form.dia} onChange={(e) => setForm({ ...form, dia: e.target.value })} />
-          </div>
-        </FieldRow>
         <FieldRow icon={<Activity size={15} color="#e0a940" />} label="Пульс утро, уд/мин"><input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} /></FieldRow>
         <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label="Сон, ч (опц.)"><input type="number" step="0.5" placeholder="7.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} /></FieldRow>
 
@@ -844,7 +826,6 @@ function MetricsTab() {
           }}><Plus size={14} /> Добавить свой параметр</button>
         )}
 
-        {isHighBP && <div style={{ fontSize: 12.5, color: "#e2795a", background: "#241a1f", border: "1px solid #3a2528", borderRadius: 6, padding: "8px 10px", marginTop: 12 }}>Давление выше нормы (140/90) — стоит проконсультироваться с врачом.</div>}
       </div>
       <button onClick={handleSave} style={{
         width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
@@ -853,9 +834,7 @@ function MetricsTab() {
       }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить показатели</>}</button>
       {chartData.length >= 2 && (
         <>
-          <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
           <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#6b9eb8" />
-          <ChartBlock title="Давление, сист./диаст." data={chartData} dataKey="sys" secondKey="dia" color="#e2795a" secondColor="#c98f2f" refLine={140} refLine2={90} />
           <ChartBlock title="Пульс, уд/мин" data={chartData} dataKey="pulse" color="#7a8fa8" refLine={90} />
           {customFields.map((field, i) => {
             const hasData = chartData.filter((d) => d[field.id] !== null).length >= 2;
@@ -873,9 +852,7 @@ function MetricsTab() {
               <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: customFields.length ? 4 : 0 }}>
                   <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDate(m.date)}</span>
-                  <span>{m.weight ? `${m.weight}кг` : "—"}</span>
                   <span>{m.waist ? `${m.waist}см` : "—"}</span>
-                  <span>{m.sys && m.dia ? `${m.sys}/${m.dia}` : "—"}</span>
                   <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
                 </div>
                 {customFields.some((f) => m.custom?.[f.id]) && (
@@ -897,7 +874,7 @@ function MetricsTab() {
 /* ───────── PROFILE TAB ───────── */
 
 function ProfileTab({ program }) {
-  const [profile, persist, loaded] = useStorage("user-profile", { name: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
+  const [profile, persist, loaded] = useStorage("user-profile", { name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
 
@@ -905,14 +882,7 @@ function ProfileTab({ program }) {
 
   const handleSave = () => { persist(form); setSaved(true); setTimeout(() => setSaved(false), 1800); };
 
-  const latestWeight = useMemo(() => {
-    const metrics = storageGet("body-metrics") || {};
-    const sorted = Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1));
-    const last = sorted.filter((m) => m.weight).pop();
-    return last ? parseFloat(last.weight) : null;
-  }, [saved, loaded]);
-
-  const computedBmi = latestWeight && form.height ? (latestWeight / Math.pow(parseFloat(form.height) / 100, 2)).toFixed(1) : null;
+  const computedBmi = form.weight && form.height ? (parseFloat(form.weight) / Math.pow(parseFloat(form.height) / 100, 2)).toFixed(1) : null;
   const workoutCount = useMemo(() => Object.keys(storageGet("workout-logs") || {}).length, [saved, loaded]);
 
   return (
@@ -920,6 +890,7 @@ function ProfileTab({ program }) {
       <div style={{ margin: "18px 0 14px", fontSize: 13, color: "#808a9e" }}>Базовые параметры — заполни один раз, обновляй по необходимости.</div>
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
         <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Имя (опц.)"><input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Как к тебе обращаться" style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Вес, кг"><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} style={inputStyle} /></FieldRow>
         <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Рост, см"><input type="number" value={form.height} onChange={(e) => setForm({ ...form, height: e.target.value })} style={inputStyle} /></FieldRow>
         <FieldRow icon={<Calendar size={15} color="#e0a940" />} label="Год рождения (опц.)"><input type="number" value={form.birthYear} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} style={inputStyle} /></FieldRow>
         <FieldRow icon={<TrendingUp size={15} color="#e0a940" />} label="Цель"><input type="text" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="Набрать массу / сбросить жир / сила..." style={inputStyle} /></FieldRow>
@@ -929,7 +900,7 @@ function ProfileTab({ program }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
         <StatCard label="Тренировок" value={workoutCount || "—"} />
         <StatCard label="BMI" value={computedBmi || "—"} hint={computedBmi ? bmiLabel(computedBmi) : "нужен рост + вес"} />
-        <StatCard label="Цель" value={form.targetWeight ? `${form.targetWeight}кг` : "—"} />
+        <StatCard label="Вес" value={form.weight ? `${form.weight}кг` : "—"} />
       </div>
       <button onClick={handleSave} style={{
         width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
