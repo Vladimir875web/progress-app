@@ -14,6 +14,7 @@ create table if not exists clients (
   code text not null unique,
   name text not null,
   trainer_id uuid not null references trainers(id) on delete cascade,
+  trainer_notes text default '',
   created_at timestamptz not null default now()
 );
 

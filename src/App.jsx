@@ -2,14 +2,18 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
-  Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, Copy, LogOut,
+  Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, LogOut,
   ChevronRight, Link2, ListOrdered, AlertCircle
 } from "lucide-react";
 import {
   cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
-  clientExists, fetchProgram, saveProgramDays, fetchWorkoutLogsMap, fetchBodyMetricsMap
+  linkClientCode, fetchProgram, saveProgramDays,
+  fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes
 } from "./lib/trainerDb";
+import { getTelegramStartCode, buildInviteLink } from "./lib/telegram";
+import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
 import { LinkedWorkoutTab, LinkedMetricsTab, TrainerProgramPreview } from "./linkedClientTabs";
+import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
 
 /* ───────── defaults & utils ───────── */
 
@@ -40,7 +44,7 @@ const DEFAULT_PROGRAM = {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
-const parseNumSets = (target) => { const m = String(target).match(/^(\d+)/); return m ? parseInt(m[1], 10) : 3; };
+const parseNumSets = parseNumSetsUtil;
 const setVolume = (sets) => sets.reduce((sum, s) => { const w = parseFloat(s.weight); const r = parseFloat(s.reps); return sum + (isNaN(w) || isNaN(r) ? 0 : w * r); }, 0);
 const fmtVol = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}т` : `${Math.round(v)}кг`);
 
@@ -122,18 +126,41 @@ const globalStyles = `
 export default function App() {
   const [role, setRole] = useState(null);
   const [roleLoaded, setRoleLoaded] = useState(false);
+  const [startLink, setStartLink] = useState({ loading: false, error: null });
 
   useEffect(() => {
     initTelegramWebApp();
-    const saved = storageGet("app-role");
-    if (saved) setRole(saved);
+    const startCode = getTelegramStartCode();
+    if (startCode) {
+      setRole("client");
+      storageSet("app-role", "client");
+      setStartLink({ loading: true, error: null });
+      linkClientCode(startCode)
+        .then(() => setStartLink({ loading: false, error: null }))
+        .catch((e) => setStartLink({ loading: false, error: e.message }));
+    } else {
+      const saved = storageGet("app-role");
+      if (saved) setRole(saved);
+    }
     setRoleLoaded(true);
   }, []);
 
   const chooseRole = (r) => { setRole(r); storageSet("app-role", r); };
-  const resetRole = () => { setRole(null); localStorage.removeItem("app-role"); };
+  const resetRole = () => {
+    setRole(null);
+    localStorage.removeItem("app-role");
+    setStartLink({ loading: false, error: null });
+  };
 
   if (!roleLoaded) return null;
+  if (startLink.loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0e111a", color: "#808a9e", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
+        <style>{globalStyles}</style>
+        Подключение к тренеру…
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#0e111a", color: "#e8ecf5", fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -141,9 +168,9 @@ export default function App() {
       {!role ? (
         <RoleChooser onChoose={chooseRole} />
       ) : role === "trainer" ? (
-        <TrainerApp onSwitchRole={chooseRole} onResetRole={resetRole} />
+        <TrainerApp onResetRole={resetRole} />
       ) : (
-        <ClientApp onSwitchRole={chooseRole} onResetRole={resetRole} />
+        <ClientApp onResetRole={resetRole} startLinkError={startLink.error} />
       )}
     </div>
   );
@@ -193,35 +220,13 @@ function ChoiceCard({ icon, title, desc, onClick }) {
   );
 }
 
-function RoleSwitcher({ role, onSwitchRole, onResetRole }) {
-  return (
-    <div style={{ display: "flex", gap: 4 }}>
-      <RoleTab active={role === "trainer"} onClick={() => onSwitchRole("trainer")} icon={<Users size={16} />} label="Тренер" />
-      <RoleTab active={role === "client"} onClick={() => onSwitchRole("client")} icon={<User size={16} />} label="Клиент" />
-      <button onClick={onResetRole} title="Сменить роль" style={{
-        marginLeft: "auto", background: "none", border: "none", color: "#5a6378", fontSize: 11, padding: "4px 8px"
-      }}>выход</button>
-    </div>
-  );
-}
-
-function RoleTab({ active, onClick, icon, label }) {
-  return (
-    <button onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 7, padding: "10px 16px",
-      background: "transparent", border: "none", borderBottom: active ? "2px solid #e0a940" : "2px solid transparent",
-      color: active ? "#e0a940" : "#808a9e", fontWeight: 600, fontSize: 14.5
-    }}>{icon}{label}</button>
-  );
-}
-
 /* ───────── CLIENT APP (tracker) ───────── */
 
 function getClientCode() {
   try { return localStorage.getItem("client-code") || null; } catch { return null; }
 }
 
-function ClientApp({ onSwitchRole, onResetRole }) {
+function ClientApp({ onResetRole, startLinkError }) {
   const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(getClientCode);
@@ -284,7 +289,11 @@ function ClientApp({ onSwitchRole, onResetRole }) {
               <IconBtn onClick={importData} title="Загрузить резервную копию"><Upload size={16} /></IconBtn>
             </div>
           </div>
-          <RoleSwitcher role="client" onSwitchRole={onSwitchRole} onResetRole={onResetRole} />
+          {startLinkError && (
+            <div style={{ fontSize: 12.5, color: "#e2795a", marginBottom: 8, padding: "8px 10px", background: "#2a1a1a", borderRadius: 8 }}>
+              {startLinkError}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
             <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
@@ -303,7 +312,7 @@ function ClientApp({ onSwitchRole, onResetRole }) {
         {tab === "program" && !clientCode && <ProgramTab program={program} persistProgram={persistProgram} />}
         {tab === "profile" && (
           <ProfileTab key={reloadKey} program={program} clientCode={clientCode}
-            onLinked={handleLinked} onUnlink={handleUnlink} />
+            onLinked={handleLinked} onUnlink={handleUnlink} onResetRole={onResetRole} />
         )}
       </div>
     </>
@@ -510,7 +519,7 @@ function WorkoutTab({ program }) {
   useEffect(() => {
     if (!day || !program[day]) return;
     const entry = logs[`${date}_${day}`];
-    setSets(initSets(program, day, entry));
+    setSets(initSets(program, day, entry, logs, date));
     setNotes(entry?.notes ?? "");
   }, [day, date, loaded, program]); // eslint-disable-line
 
@@ -522,14 +531,16 @@ function WorkoutTab({ program }) {
     );
   }
 
-  function initSets(prog, d, existingEntry) {
+  function initSets(prog, d, existingEntry, allLogs, currentDate) {
     const exs = prog[d]?.exercises || [];
     return exs.map((ex) => {
       const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
       const numSets = parseNumSets(ex.target);
+      const savedSets = prev?.sets;
+      const lastSets = savedSets?.length ? null : findLastExerciseSets(allLogs, d, currentDate, ex.name);
       return {
         name: ex.name, target: ex.target,
-        sets: prev?.sets?.length ? prev.sets : Array.from({ length: numSets }, () => ({ weight: "", reps: "" })),
+        sets: buildExerciseSets({ numSets, savedSets, lastSets }),
       };
     });
   }
@@ -571,7 +582,7 @@ function WorkoutTab({ program }) {
   };
 
   return (
-    <div>
+    <div style={{ paddingBottom: 88 }}>
       <div style={{ display: "flex", gap: 8, margin: "18px 0 14px", flexWrap: "wrap" }}>
         {dayKeys.map((d) => (
           <button key={d} onClick={() => setDay(d)} style={{
@@ -640,11 +651,7 @@ function WorkoutTab({ program }) {
           style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} />
       </div>
 
-      <button onClick={handleSave} style={{
-        width: "100%", padding: "14px 0", borderRadius: 10, border: "none", marginTop: 8,
-        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить тренировку</>}</button>
+      <StickySaveBar onSave={handleSave} saved={saved} saving={false} />
 
       <button onClick={() => setShowHistory((v) => !v)} style={{
         width: "100%", background: "none", border: "none", color: "#808a9e", fontSize: 13,
@@ -897,7 +904,7 @@ function MetricsTab() {
 
 /* ───────── PROFILE TAB ───────── */
 
-function ProfileTab({ program, clientCode, onLinked, onUnlink }) {
+function ProfileTab({ program, clientCode, onLinked, onUnlink, onResetRole }) {
   const [profile, persist, loaded] = useStorage("user-profile", { name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
@@ -945,29 +952,31 @@ function ProfileTab({ program, clientCode, onLinked, onUnlink }) {
       }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить профиль</>}</button>
       <TrainerLinkSection clientCode={clientCode} onLinked={onLinked} onUnlink={onUnlink} />
       {clientCode ? <TrainerProgramPreview clientCode={clientCode} /> : <ProgramPreview program={program} />}
+      <div style={{ textAlign: "center", marginTop: 8 }}>
+        <RoleSwitchLink onResetRole={onResetRole} />
+      </div>
     </div>
   );
 }
 
-function TrainerLinkSection({ clientCode, onLinked, onUnlink }) {
+function TrainerLinkSection({ clientCode, onLinked, onUnlink, autoConnectCode }) {
   const [code, setCode] = useState(clientCode || getClientCode());
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(autoConnectCode || "");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
   useEffect(() => { setCode(clientCode || getClientCode()); }, [clientCode]);
 
-  const link = async () => {
-    const c = input.trim().toUpperCase();
+  const linkWithCode = async (raw) => {
+    const c = String(raw).trim().toUpperCase();
     if (!c) return;
     if (!cloudEnabled()) { setError("Облако не настроено. Администратор должен добавить Supabase в переменные окружения."); return; }
     setChecking(true);
     setError("");
     try {
-      const exists = await clientExists(c);
-      if (!exists) { setError("Код не найден. Проверь, что тренер его передал верно."); return; }
-      localStorage.setItem("client-code", c);
+      await linkClientCode(c);
       setCode(c);
+      setInput(c);
       onLinked?.(c);
     } catch (e) {
       setError(e.message || "Ошибка подключения к Supabase");
@@ -975,6 +984,12 @@ function TrainerLinkSection({ clientCode, onLinked, onUnlink }) {
       setChecking(false);
     }
   };
+
+  const link = () => linkWithCode(input);
+
+  useEffect(() => {
+    if (autoConnectCode && !code && !checking) linkWithCode(autoConnectCode);
+  }, [autoConnectCode]); // eslint-disable-line
 
   const unlink = () => {
     localStorage.removeItem("client-code");
@@ -1080,7 +1095,7 @@ function ChartBlock({ title, data, dataKey, secondKey, color, secondColor, refLi
 
 /* ───────── TRAINER APP ───────── */
 
-function TrainerApp({ onSwitchRole, onResetRole }) {
+function TrainerApp({ onResetRole }) {
   const [clients, setClients] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1142,7 +1157,6 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
             <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>PROGRESS</span>
             <span style={{ fontSize: 13, color: "#808a9e", fontWeight: 500 }}>тренер</span>
           </div>
-          <RoleSwitcher role="trainer" onSwitchRole={onSwitchRole} onResetRole={onResetRole} />
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
@@ -1173,6 +1187,9 @@ function TrainerApp({ onSwitchRole, onResetRole }) {
                   <button onClick={() => removeClient(c.code)} style={{ background: "none", border: "none", padding: 6 }}><Trash2 size={16} color="#c45a4a" /></button>
                 </div>
               ))}
+            </div>
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <RoleSwitchLink onResetRole={onResetRole} />
             </div>
           </div>
         )}
@@ -1216,23 +1233,35 @@ function AddClient({ onAdd, disabled }) {
 function ClientDetail({ client, onBack, cloudDisabled }) {
   const [tab, setTab] = useState("program");
   const [copied, setCopied] = useState(false);
-  const copyCode = async () => {
-    try { await navigator.clipboard.writeText(client.code); } catch { /* noop */ }
+  const inviteLink = buildInviteLink(client.code);
+
+  const copyInvite = async () => {
+    const text = inviteLink || client.code;
+    try { await navigator.clipboard.writeText(text); } catch { /* noop */ }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <div style={{ paddingTop: 18 }}>
       <button onClick={onBack} style={{ background: "none", border: "none", color: "#808a9e", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
       <div className="display" style={{ fontSize: 26, marginBottom: 4 }}>{client.name}</div>
-      <button onClick={copyCode} style={{
+      <button onClick={copyInvite} style={{
         display: "flex", alignItems: "center", gap: 6, background: "#171c29", border: "1px solid #2b344a",
-        borderRadius: 8, padding: "8px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16
+        borderRadius: 8, padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 8, width: "100%",
+        justifyContent: "center"
       }}>
-        <Copy size={13} /> код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940", letterSpacing: 1 }}>{client.code}</span>
-        {copied && <span style={{ color: "#4a7a5a", marginLeft: 4 }}>скопировано</span>}
+        <Link2 size={15} color="#e0a940" />
+        {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
       </button>
+      <div style={{ fontSize: 11.5, color: "#5a6378", marginBottom: 12, lineHeight: 1.5 }}>
+        {inviteLink ? (
+          <>Клиент откроет приложение сразу в своём режиме: <span style={{ fontFamily: "monospace", color: "#808a9e", wordBreak: "break-all" }}>{inviteLink}</span></>
+        ) : (
+          <>Добавь <code style={{ color: "#808a9e" }}>VITE_TELEGRAM_BOT_USERNAME</code> и <code style={{ color: "#808a9e" }}>VITE_TELEGRAM_APP_SHORT_NAME</code> в .env. Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span></>
+        )}
+      </div>
+      <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
         <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
@@ -1240,6 +1269,63 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
       {tab === "program"
         ? <TrainerProgramEditor code={client.code} disabled={cloudDisabled} />
         : <ClientProgressView code={client.code} disabled={cloudDisabled} />}
+    </div>
+  );
+}
+
+function TrainerNotesPanel({ clientCode, disabled }) {
+  const [notes, setNotes] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    if (disabled || !cloudEnabled()) { setLoaded(true); return; }
+    fetchClientTrainerNotes(clientCode)
+      .then(setNotes)
+      .catch((e) => setLoadError(e.message))
+      .finally(() => setLoaded(true));
+  }, [clientCode, disabled]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await saveClientTrainerNotes(clientCode, notes);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      alert("Ошибка сохранения: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  if (disabled) return null;
+
+  return (
+    <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 6 }}>
+        ЗАМЕТКИ О КЛИЕНТЕ <span style={{ fontWeight: 400, color: "#5a6378" }}>(только для тебя)</span>
+      </div>
+      {loadError ? (
+        <div style={{ fontSize: 12.5, color: "#e2795a" }}>{loadError}</div>
+      ) : !loaded ? (
+        <div style={{ fontSize: 12.5, color: "#808a9e" }}>Загрузка…</div>
+      ) : (
+        <>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Травмы, ограничения, на что обратить внимание…"
+            style={{ ...inputStyle, minHeight: 72, resize: "vertical", marginBottom: 10 }}
+          />
+          <button onClick={save} disabled={saving} style={{
+            width: "100%", padding: "10px 0", borderRadius: 8, border: "none",
+            background: saved ? "#4a7a5a" : "#303a50", color: saved ? "#fff" : "#e8ecf5",
+            fontWeight: 600, fontSize: 13, opacity: saving ? 0.7 : 1,
+          }}>{saved ? "Сохранено" : saving ? "Сохранение…" : "Сохранить заметки"}</button>
+        </>
+      )}
     </div>
   );
 }

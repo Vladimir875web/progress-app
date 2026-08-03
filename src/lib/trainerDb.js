@@ -68,6 +68,35 @@ export async function deleteClient(code) {
   if (error) throw error;
 }
 
+export async function linkClientCode(code) {
+  requireSupabase();
+  const normalized = String(code).trim().toUpperCase();
+  const exists = await clientExists(normalized);
+  if (!exists) throw new Error("Код не найден. Проверь, что тренер его передал верно.");
+  localStorage.setItem("client-code", normalized);
+  return normalized;
+}
+
+export async function fetchClientTrainerNotes(clientCode) {
+  requireSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("trainer_notes")
+    .eq("code", clientCode)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.trainer_notes ?? "";
+}
+
+export async function saveClientTrainerNotes(clientCode, notes) {
+  requireSupabase();
+  const { error } = await supabase
+    .from("clients")
+    .update({ trainer_notes: notes })
+    .eq("code", clientCode);
+  if (error) throw error;
+}
+
 export async function clientExists(code) {
   requireSupabase();
   const normalized = String(code).trim().toUpperCase();

@@ -2,16 +2,17 @@ import React, { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
-  Calendar, Check, StickyNote, Cloud
+  Calendar, Check, StickyNote
 } from "lucide-react";
 import {
   fetchProgram, fetchWorkoutLogsMap, saveWorkoutLog,
   fetchBodyMetricsMap, saveBodyMetric, cloudEnabled
 } from "./lib/trainerDb";
+import { buildExerciseSets, findLastExerciseSets, parseNumSets } from "./lib/workoutUtils";
+import { SyncIndicator, StickySaveBar } from "./ui/shared";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
-const parseNumSets = (target) => { const m = String(target).match(/^(\d+)/); return m ? parseInt(m[1], 10) : 3; };
 const setVolume = (sets) => sets.reduce((sum, s) => { const w = parseFloat(s.weight); const r = parseFloat(s.reps); return sum + (isNaN(w) || isNaN(r) ? 0 : w * r); }, 0);
 const fmtVol = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}т` : `${Math.round(v)}кг`);
 
@@ -20,25 +21,15 @@ const inputStyle = {
   borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", fontFamily: "'Inter', sans-serif"
 };
 
-export function CloudBanner() {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 8, background: "#1a2438", border: "1px solid #2b4470",
-      borderRadius: 8, padding: "10px 12px", margin: "14px 0", fontSize: 12.5, color: "#9eb8e0"
-    }}>
-      <Cloud size={16} color="#6b9eb8" />
-      Программа и данные синхронизируются с тренером через облако
-    </div>
-  );
-}
-
-function initSetsFromTrainerDay(exercises, existingEntry) {
+function initSetsFromTrainerDay(exercises, existingEntry, logs, day, date) {
   return (exercises || []).map((ex) => {
     const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
     const numSets = parseNumSets(ex.target);
+    const savedSets = prev?.sets;
+    const lastSets = savedSets?.length ? null : findLastExerciseSets(logs, day, date, ex.name);
     return {
       name: ex.name, target: ex.target,
-      sets: prev?.sets?.length ? prev.sets : Array.from({ length: numSets }, () => ({ weight: "", reps: "" })),
+      sets: buildExerciseSets({ numSets, savedSets, lastSets }),
     };
   });
 }
@@ -84,7 +75,7 @@ export function LinkedWorkoutTab({ clientCode }) {
   useEffect(() => {
     if (!day || !program?.days?.[day]) return;
     const entry = logs[`${date}_${day}`];
-    setSets(initSetsFromTrainerDay(program.days[day], entry));
+    setSets(initSetsFromTrainerDay(program.days[day], entry, logs, day, date));
     setNotes(entry?.notes ?? "");
   }, [day, date, program, logs]);
 
@@ -134,7 +125,7 @@ export function LinkedWorkoutTab({ clientCode }) {
   if (!dayKeys.length) {
     return (
       <div style={{ padding: "40px 0", textAlign: "center", color: "#808a9e", fontSize: 14 }}>
-        <CloudBanner />
+        <SyncIndicator />
         Тренер ещё не составил программу — попроси его добавить дни
       </div>
     );
@@ -143,8 +134,8 @@ export function LinkedWorkoutTab({ clientCode }) {
   const totalVolume = sets.reduce((sum, ex) => sum + setVolume(ex.sets), 0);
 
   return (
-    <div>
-      <CloudBanner />
+    <div style={{ paddingBottom: 88 }}>
+      <SyncIndicator />
       <div style={{ display: "flex", gap: 8, margin: "18px 0 14px", flexWrap: "wrap" }}>
         {dayKeys.map((d) => (
           <button key={d} onClick={() => setDay(d)} style={{
@@ -213,11 +204,7 @@ export function LinkedWorkoutTab({ clientCode }) {
           style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} />
       </div>
 
-      <button onClick={handleSave} disabled={saving} style={{
-        width: "100%", padding: "14px 0", borderRadius: 10, border: "none", marginTop: 8,
-        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1
-      }}>{saved ? <><Check size={17} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={17} /> Сохранить тренировку</>}</button>
+      <StickySaveBar onSave={handleSave} saved={saved} saving={saving} />
 
       <button onClick={() => setShowHistory((v) => !v)} style={{
         width: "100%", background: "none", border: "none", color: "#808a9e", fontSize: 13,
@@ -368,8 +355,8 @@ export function LinkedMetricsTab({ clientCode }) {
   if (loadError) return <div style={{ padding: 40, textAlign: "center", color: "#e2795a" }}>{loadError}</div>;
 
   return (
-    <div>
-      <CloudBanner />
+    <div style={{ position: "relative" }}>
+      <SyncIndicator />
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 14px" }}>
         <Activity size={16} color="#e0a940" />
         <span style={{ fontSize: 14, fontWeight: 600 }}>Показатели тела</span>
