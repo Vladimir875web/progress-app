@@ -3,17 +3,20 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
   Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, LogOut,
-  ChevronRight, Link2, ListOrdered, AlertCircle
+  ChevronRight, Link2, AlertCircle
 } from "lucide-react";
 import {
   cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
   linkClientCode, fetchProgram, saveProgramDays,
   fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes
 } from "./lib/trainerDb";
-import { getTelegramStartCode, buildInviteLink } from "./lib/telegram";
+import {
+  getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink
+} from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedWorkoutTab, LinkedMetricsTab, TrainerProgramPreview } from "./linkedClientTabs";
+import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
+import { ConnectToTrainerPrompt, StartParamDebugBanner } from "./ui/clientPrompts";
 
 /* ───────── defaults & utils ───────── */
 
@@ -126,38 +129,77 @@ const globalStyles = `
 export default function App() {
   const [role, setRole] = useState(null);
   const [roleLoaded, setRoleLoaded] = useState(false);
-  const [startLink, setStartLink] = useState({ loading: false, error: null });
+  const [startLink, setStartLink] = useState({ loading: false, error: null, success: null, status: null });
 
   useEffect(() => {
+    let cancelled = false;
+
     initTelegramWebApp();
-    const startCode = getTelegramStartCode();
-    if (startCode) {
-      setRole("client");
-      storageSet("app-role", "client");
-      setStartLink({ loading: true, error: null });
-      linkClientCode(startCode)
-        .then(() => setStartLink({ loading: false, error: null }))
-        .catch((e) => setStartLink({ loading: false, error: e.message }));
-    } else {
-      const saved = storageGet("app-role");
-      if (saved) setRole(saved);
-    }
-    setRoleLoaded(true);
+
+    (async () => {
+      const debug = getTelegramStartDebugInfo();
+      console.log("[PROGRESS] Telegram start debug:", debug);
+
+      const startCode = await waitForTelegramStartCode();
+
+      if (cancelled) return;
+
+      if (!startCode && debug.rawParam) {
+        console.warn("[PROGRESS] start_param получен, но не похож на код клиента:", debug.rawParam);
+      }
+
+      if (startCode) {
+        setRole("client");
+        storageSet("app-role", "client");
+        setStartLink({ loading: true, error: null, success: null, status: "linking", debug });
+        try {
+          await linkClientCode(startCode);
+          if (!cancelled) {
+            setStartLink({
+              loading: false, error: null, success: startCode,
+              status: "linked", debug: getTelegramStartDebugInfo(),
+            });
+          }
+        } catch (e) {
+          if (!cancelled) {
+            setStartLink({
+              loading: false, error: e.message, success: null,
+              status: "error", debug: getTelegramStartDebugInfo(),
+            });
+          }
+        }
+      } else {
+        const saved = storageGet("app-role");
+        if (saved) setRole(saved);
+        setStartLink({
+          loading: false, error: null, success: null,
+          status: debug.rawParam ? "invalid_param" : "no_param",
+          debug,
+        });
+      }
+
+      if (!cancelled) setRoleLoaded(true);
+    })();
+
+    return () => { cancelled = true; };
   }, []);
 
   const chooseRole = (r) => { setRole(r); storageSet("app-role", r); };
   const resetRole = () => {
     setRole(null);
     localStorage.removeItem("app-role");
-    setStartLink({ loading: false, error: null });
+    setStartLink({ loading: false, error: null, success: null, status: null });
   };
 
   if (!roleLoaded) return null;
   if (startLink.loading) {
     return (
-      <div style={{ minHeight: "100vh", background: "#0e111a", color: "#808a9e", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div style={{ minHeight: "100vh", background: "#0e111a", color: "#808a9e", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif", padding: 16 }}>
         <style>{globalStyles}</style>
         Подключение к тренеру…
+        <div style={{ width: "100%", maxWidth: 640, marginTop: 12 }}>
+          <StartParamDebugBanner extra={`status: ${startLink.status ?? "linking"}`} />
+        </div>
       </div>
     );
   }
@@ -165,12 +207,17 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#0e111a", color: "#e8ecf5", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <style>{globalStyles}</style>
+      <StartParamDebugBanner extra={startLink.status ? `status: ${startLink.status}` : null} />
       {!role ? (
         <RoleChooser onChoose={chooseRole} />
       ) : role === "trainer" ? (
         <TrainerApp onResetRole={resetRole} />
       ) : (
-        <ClientApp onResetRole={resetRole} startLinkError={startLink.error} />
+        <ClientApp
+          onResetRole={resetRole}
+          startLinkError={startLink.error}
+          startLinkSuccess={startLink.success}
+        />
       )}
     </div>
   );
@@ -226,14 +273,21 @@ function getClientCode() {
   try { return localStorage.getItem("client-code") || null; } catch { return null; }
 }
 
-function ClientApp({ onResetRole, startLinkError }) {
+function ClientApp({ onResetRole, startLinkError, startLinkSuccess }) {
   const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
-  const [clientCode, setClientCode] = useState(getClientCode);
-  const [program, persistProgram, programLoaded] = useProgram();
+  const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
   const reload = () => setReloadKey((k) => k + 1);
   const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
-  const handleUnlink = () => { setClientCode(null); };
+  const handleUnlink = () => { setClientCode(null); setTab("workout"); };
+
+  useEffect(() => {
+    if (startLinkSuccess) setClientCode(startLinkSuccess);
+  }, [startLinkSuccess]);
+
+  useEffect(() => {
+    if (startLinkSuccess && tab !== "workout") setTab("workout");
+  }, [startLinkSuccess]); // eslint-disable-line
 
   const exportData = () => {
     const payload = {
@@ -273,8 +327,6 @@ function ClientApp({ onResetRole, startLinkError }) {
     input.click();
   };
 
-  if (!programLoaded) return null;
-
   return (
     <>
       <div style={{ borderBottom: "1px solid #2b344a", position: "sticky", top: 0, background: "#0e111a", zIndex: 10 }}>
@@ -294,10 +346,14 @@ function ClientApp({ onResetRole, startLinkError }) {
               {startLinkError}
             </div>
           )}
+          {startLinkSuccess && (
+            <div style={{ fontSize: 12.5, color: "#4caf50", marginBottom: 8, padding: "8px 10px", background: "#1a2a1a", borderRadius: 8 }}>
+              Подключено к тренеру · код {startLinkSuccess}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
             <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
-            {!clientCode && <TabButton active={tab === "program"} onClick={() => setTab("program")} icon={<ListOrdered size={16} />} label="Программа" />}
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
@@ -305,13 +361,12 @@ function ClientApp({ onResetRole, startLinkError }) {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
         {tab === "workout" && (clientCode
           ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
-          : <WorkoutTab key={reloadKey} program={program} />)}
+          : <ConnectToTrainerPrompt onGoProfile={() => setTab("profile")} />)}
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}
-        {tab === "program" && !clientCode && <ProgramTab program={program} persistProgram={persistProgram} />}
         {tab === "profile" && (
-          <ProfileTab key={reloadKey} program={program} clientCode={clientCode}
+          <ProfileTab key={reloadKey} clientCode={clientCode}
             onLinked={handleLinked} onUnlink={handleUnlink} onResetRole={onResetRole} />
         )}
       </div>
@@ -904,7 +959,7 @@ function MetricsTab() {
 
 /* ───────── PROFILE TAB ───────── */
 
-function ProfileTab({ program, clientCode, onLinked, onUnlink, onResetRole }) {
+function ProfileTab({ clientCode, onLinked, onUnlink, onResetRole }) {
   const [profile, persist, loaded] = useStorage("user-profile", { name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
@@ -951,7 +1006,6 @@ function ProfileTab({ program, clientCode, onLinked, onUnlink, onResetRole }) {
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8
       }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить профиль</>}</button>
       <TrainerLinkSection clientCode={clientCode} onLinked={onLinked} onUnlink={onUnlink} />
-      {clientCode ? <TrainerProgramPreview clientCode={clientCode} /> : <ProgramPreview program={program} />}
       <div style={{ textAlign: "center", marginTop: 8 }}>
         <RoleSwitchLink onResetRole={onResetRole} />
       </div>
