@@ -4,7 +4,6 @@ export function getTelegramWebApp() {
   return typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
 }
 
-/** Сырой startapp-параметр из Telegram (до валидации кода). */
 export function getTelegramStartParamRaw() {
   if (typeof window === "undefined") return null;
 
@@ -24,12 +23,10 @@ export function normalizeClientCode(raw) {
   return CLIENT_CODE_RE.test(code) ? code : null;
 }
 
-/** Код клиента из startapp (Direct Link Mini App). */
 export function getTelegramStartCode() {
   return normalizeClientCode(getTelegramStartParamRaw());
 }
 
-/** Диагностика для отладки deep link (console + UI при ?debug=1). */
 export function getTelegramStartDebugInfo() {
   const tg = getTelegramWebApp();
   const raw = getTelegramStartParamRaw();
@@ -52,12 +49,20 @@ export function shouldShowStartDebug() {
   return new URLSearchParams(window.location.search).get("debug") === "1";
 }
 
-/**
- * Telegram иногда отдаёт start_param с задержкой — ждём и перечитываем.
- * Также читаем tgWebAppStartParam из URL (официальный fallback).
- */
-export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 100 } = {}) {
-  const deadline = Date.now() + maxMs;
+/** Ждём start_param только если есть признаки deep link — иначе сразу null. */
+export async function waitForTelegramStartCode({ maxMs = 1200, intervalMs = 50 } = {}) {
+  const immediate = getTelegramStartCode();
+  if (immediate) return immediate;
+
+  const raw = getTelegramStartParamRaw();
+  if (raw && !normalizeClientCode(raw)) return null;
+
+  const inTelegram = Boolean(getTelegramWebApp());
+  const urlHint = typeof window !== "undefined" && window.location.search.includes("tgWebAppStartParam");
+
+  if (!inTelegram && !urlHint && !raw) return null;
+
+  const deadline = Date.now() + (raw || urlHint ? maxMs : 400);
   while (Date.now() < deadline) {
     const code = getTelegramStartCode();
     if (code) return code;
@@ -68,10 +73,6 @@ export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 100 
   return getTelegramStartCode();
 }
 
-/**
- * Direct Link: https://t.me/BOT_USERNAME/APP_SHORT_NAME?startapp=CLIENT_CODE
- * Важно: нужен /APP_SHORT_NAME из BotFather, не только ?startapp на бота.
- */
 export function buildInviteLink(clientCode) {
   const bot = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
   const app = import.meta.env.VITE_TELEGRAM_APP_SHORT_NAME;

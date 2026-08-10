@@ -7,16 +7,17 @@ import {
 } from "lucide-react";
 import {
   cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
-  linkClientCode, fetchProgram, saveProgramDays,
+  linkClientCode,
   fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes
 } from "./lib/trainerDb";
 import {
-  getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink
+  getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink, shouldShowStartDebug
 } from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
+import { LinkedMetricsTab } from "./linkedClientTabs";
+import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
-import { ConnectToTrainerPrompt, StartParamDebugBanner } from "./ui/clientPrompts";
+import { StartParamDebugBanner } from "./ui/clientPrompts";
 
 /* ───────── defaults & utils ───────── */
 
@@ -127,82 +128,52 @@ const globalStyles = `
 /* ───────── root app ───────── */
 
 export default function App() {
-  const [role, setRole] = useState(null);
-  const [roleLoaded, setRoleLoaded] = useState(false);
-  const [startLink, setStartLink] = useState({ loading: false, error: null, success: null, status: null });
+  const [role, setRole] = useState(() => storageGet("app-role"));
+  const [startLink, setStartLink] = useState({ linking: false, error: null, success: null, status: null });
 
   useEffect(() => {
-    let cancelled = false;
-
     initTelegramWebApp();
 
     (async () => {
       const debug = getTelegramStartDebugInfo();
-      console.log("[PROGRESS] Telegram start debug:", debug);
+      if (shouldShowStartDebug()) console.log("[PROGRESS] Telegram start debug:", debug);
 
       const startCode = await waitForTelegramStartCode();
-
-      if (cancelled) return;
-
-      if (!startCode && debug.rawParam) {
-        console.warn("[PROGRESS] start_param получен, но не похож на код клиента:", debug.rawParam);
+      if (!startCode) {
+        if (debug.rawParam && shouldShowStartDebug()) {
+          console.warn("[PROGRESS] start_param есть, но код невалидный:", debug.rawParam);
+        }
+        setStartLink({
+          linking: false, error: null, success: null,
+          status: debug.rawParam ? "invalid_param" : "no_param", debug,
+        });
+        return;
       }
 
-      if (startCode) {
-        setRole("client");
-        storageSet("app-role", "client");
-        setStartLink({ loading: true, error: null, success: null, status: "linking", debug });
-        try {
-          await linkClientCode(startCode);
-          if (!cancelled) {
-            setStartLink({
-              loading: false, error: null, success: startCode,
-              status: "linked", debug: getTelegramStartDebugInfo(),
-            });
-          }
-        } catch (e) {
-          if (!cancelled) {
-            setStartLink({
-              loading: false, error: e.message, success: null,
-              status: "error", debug: getTelegramStartDebugInfo(),
-            });
-          }
-        }
-      } else {
-        const saved = storageGet("app-role");
-        if (saved) setRole(saved);
+      setRole("client");
+      storageSet("app-role", "client");
+      setStartLink({ linking: true, error: null, success: null, status: "linking", debug });
+      try {
+        await linkClientCode(startCode);
         setStartLink({
-          loading: false, error: null, success: null,
-          status: debug.rawParam ? "invalid_param" : "no_param",
-          debug,
+          linking: false, error: null, success: startCode,
+          status: "linked", debug: getTelegramStartDebugInfo(),
+        });
+      } catch (e) {
+        setStartLink({
+          linking: false, error: e.message, success: null,
+          status: "error", debug: getTelegramStartDebugInfo(),
         });
       }
-
-      if (!cancelled) setRoleLoaded(true);
     })();
-
-    return () => { cancelled = true; };
   }, []);
 
   const chooseRole = (r) => { setRole(r); storageSet("app-role", r); };
   const resetRole = () => {
     setRole(null);
     localStorage.removeItem("app-role");
-    setStartLink({ loading: false, error: null, success: null, status: null });
+    setStartLink({ linking: false, error: null, success: null, status: null });
   };
-
-  if (!roleLoaded) return null;
-  if (startLink.loading) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#0e111a", color: "#808a9e", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif", padding: 16 }}>
-        <style>{globalStyles}</style>
-        Подключение к тренеру…
-        <div style={{ width: "100%", maxWidth: 640, marginTop: 12 }}>
-          <StartParamDebugBanner extra={`status: ${startLink.status ?? "linking"}`} />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#0e111a", color: "#e8ecf5", fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -217,6 +188,7 @@ export default function App() {
           onResetRole={resetRole}
           startLinkError={startLink.error}
           startLinkSuccess={startLink.success}
+          startLinkLinking={startLink.linking}
         />
       )}
     </div>
@@ -273,21 +245,17 @@ function getClientCode() {
   try { return localStorage.getItem("client-code") || null; } catch { return null; }
 }
 
-function ClientApp({ onResetRole, startLinkError, startLinkSuccess }) {
-  const [tab, setTab] = useState("workout");
+function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking }) {
+  const [tab, setTab] = useState("metrics");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
   const reload = () => setReloadKey((k) => k + 1);
-  const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
-  const handleUnlink = () => { setClientCode(null); setTab("workout"); };
+  const handleLinked = (code) => { setClientCode(code); setTab("metrics"); };
+  const handleUnlink = () => { setClientCode(null); };
 
   useEffect(() => {
     if (startLinkSuccess) setClientCode(startLinkSuccess);
   }, [startLinkSuccess]);
-
-  useEffect(() => {
-    if (startLinkSuccess && tab !== "workout") setTab("workout");
-  }, [startLinkSuccess]); // eslint-disable-line
 
   const exportData = () => {
     const payload = {
@@ -341,6 +309,11 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess }) {
               <IconBtn onClick={importData} title="Загрузить резервную копию"><Upload size={16} /></IconBtn>
             </div>
           </div>
+          {startLinkLinking && (
+            <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, padding: "8px 10px", background: "#171c29", borderRadius: 8 }}>
+              Подключение к тренеру…
+            </div>
+          )}
           {startLinkError && (
             <div style={{ fontSize: 12.5, color: "#e2795a", marginBottom: 8, padding: "8px 10px", background: "#2a1a1a", borderRadius: 8 }}>
               {startLinkError}
@@ -352,16 +325,12 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess }) {
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
-            <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
-        {tab === "workout" && (clientCode
-          ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
-          : <ConnectToTrainerPrompt onGoProfile={() => setTab("profile")} />)}
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}
@@ -1317,11 +1286,11 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
       </div>
       <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
+        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Тренировка" />
         <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
       </div>
       {tab === "program"
-        ? <TrainerProgramEditor code={client.code} disabled={cloudDisabled} />
+        ? <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />
         : <ClientProgressView code={client.code} disabled={cloudDisabled} />}
     </div>
   );
@@ -1380,135 +1349,6 @@ function TrainerNotesPanel({ clientCode, disabled }) {
           }}>{saved ? "Сохранено" : saving ? "Сохранение…" : "Сохранить заметки"}</button>
         </>
       )}
-    </div>
-  );
-}
-
-function TrainerProgramEditor({ code, disabled }) {
-  const [program, setProgram] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [newDayName, setNewDayName] = useState("");
-  const [addingDay, setAddingDay] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (disabled || !cloudEnabled()) return;
-      try {
-        const p = await fetchProgram(code);
-        if (!cancelled) setProgram({ days: p.days || {} });
-      } catch (e) {
-        if (!cancelled) setLoadError(e.message);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [code, disabled]);
-
-  if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
-  if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
-  if (!program) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
-
-  const dayKeys = Object.keys(program.days || {});
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await saveProgramDays(code, program.days);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-    } catch (e) {
-      alert("Ошибка сохранения: " + e.message);
-    }
-    setSaving(false);
-  };
-
-  const addDay = () => {
-    const name = newDayName.trim();
-    if (!name || program.days[name]) return;
-    setProgram({ ...program, days: { ...program.days, [name]: [] } });
-    setNewDayName(""); setAddingDay(false);
-  };
-
-  const removeDay = (d) => {
-    const next = { ...program.days };
-    delete next[d];
-    setProgram({ ...program, days: next });
-  };
-
-  const addExercise = (d) => {
-    setProgram({ ...program, days: { ...program.days, [d]: [...program.days[d], { name: "Новое упражнение", target: "3×10–12" }] } });
-  };
-
-  const updateExercise = (d, i, field, value) => {
-    const exs = [...program.days[d]];
-    exs[i] = { ...exs[i], [field]: value };
-    setProgram({ ...program, days: { ...program.days, [d]: exs } });
-  };
-
-  const removeExercise = (d, i) => {
-    const exs = [...program.days[d]];
-    exs.splice(i, 1);
-    setProgram({ ...program, days: { ...program.days, [d]: exs } });
-  };
-
-  const moveExercise = (d, idx, dir) => {
-    const exs = [...program.days[d]];
-    const target = idx + dir;
-    if (target < 0 || target >= exs.length) return;
-    [exs[idx], exs[target]] = [exs[target], exs[idx]];
-    setProgram({ ...program, days: { ...program.days, [d]: exs } });
-  };
-
-  return (
-    <div>
-      {dayKeys.length === 0 && <div style={{ fontSize: 13.5, color: "#808a9e", textAlign: "center", padding: "20px 0" }}>Добавь первый день программы</div>}
-      {dayKeys.map((d) => (
-        <div key={d} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: 14.5 }}>{d}</div>
-            <button onClick={() => removeDay(d)} style={{ background: "none", border: "none" }}><Trash2 size={15} color="#c45a4a" /></button>
-          </div>
-          {program.days[d].map((ex, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 0", borderTop: i > 0 ? "1px solid #2b344a" : "none" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <button onClick={() => moveExercise(d, i, -1)} disabled={i === 0} style={{ background: "none", border: "none", padding: 0, color: i === 0 ? "#303a50" : "#808a9e" }}><ChevronUp size={14} /></button>
-                <button onClick={() => moveExercise(d, i, 1)} disabled={i === program.days[d].length - 1} style={{ background: "none", border: "none", padding: 0, color: i === program.days[d].length - 1 ? "#303a50" : "#808a9e" }}><ChevronDown size={14} /></button>
-              </div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                <input type="text" value={ex.name} onChange={(e) => updateExercise(d, i, "name", e.target.value)} />
-                <input type="text" value={ex.target} onChange={(e) => updateExercise(d, i, "target", e.target.value)} placeholder="3×10–12" style={{ fontSize: 13 }} />
-              </div>
-              <button onClick={() => removeExercise(d, i)} style={{ background: "none", border: "none" }}><Trash2 size={13} color="#5a6378" /></button>
-            </div>
-          ))}
-          <button onClick={() => addExercise(d)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#e0a940", fontSize: 12.5, fontWeight: 600, marginTop: 8, padding: 0 }}><Plus size={13} /> упражнение</button>
-        </div>
-      ))}
-
-      {addingDay ? (
-        <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 6 }}>Название дня</div>
-          <input type="text" value={newDayName} onChange={(e) => setNewDayName(e.target.value)} placeholder="Понедельник — Спина" />
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={addDay} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
-            <button onClick={() => setAddingDay(false)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}>Отмена</button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setAddingDay(true)} style={{
-          width: "100%", padding: "12px 0", borderRadius: 10, border: "1px dashed #303a50",
-          background: "none", color: "#e0a940", fontWeight: 700, fontSize: 13.5, marginBottom: 12,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6
-        }}><Plus size={15} /> Добавить день</button>
-      )}
-
-      <button onClick={save} disabled={saving} style={{
-        width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
-        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 14.5,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1
-      }}>{saved ? <><Check size={16} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={16} /> Сохранить программу</>}</button>
     </div>
   );
 }
