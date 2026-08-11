@@ -1,5 +1,3 @@
-import { isProgramDateKey } from "./programDates";
-
 const EMPTY_SET = () => ({ weight: "", reps: "" });
 
 export function parseTargetToSets(target) {
@@ -81,14 +79,12 @@ export function toJournalProgramDays(days) {
 export function serializeJournalProgramDays(days) {
   const out = {};
   for (const [day, exercises] of Object.entries(days || {})) {
-    if (!isProgramDateKey(day)) continue;
-    const list = (exercises || [])
+    out[day] = (exercises || [])
       .map((ex) => ({
         name: String(ex?.name || "").trim(),
         target: String(ex?.target || "3×10–12").trim() || "3×10–12",
       }))
       .filter((ex) => ex.name);
-    if (list.length) out[day] = list;
   }
   return out;
 }

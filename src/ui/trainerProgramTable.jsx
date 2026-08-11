@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, X, ChevronUp, ChevronDown, Calendar } from "lucide-react";
+import { Plus, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
 import { cloudEnabled, fetchProgram, saveProgramDays } from "../lib/trainerDb";
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
-import {
-  todayISO, migrateLegacyProgramDays, getWorkoutDates, fmtDateLong,
-} from "../lib/programDates";
-import { WorkoutCalendar } from "./workoutCalendar";
+import { migrateDateKeysToWeekdays } from "../lib/programDates";
 import { StickySaveBar } from "./shared";
 
 const inputStyle = {
@@ -19,9 +16,11 @@ export function TrainerProgramTable({ clientCode, disabled }) {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [activeDay, setActiveDay] = useState("Пн");
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEx, setNewEx] = useState({ name: "", target: "3×10–12" });
+  const [addingDay, setAddingDay] = useState(false);
+  const [newDayKey, setNewDayKey] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -30,11 +29,10 @@ export function TrainerProgramTable({ clientCode, disabled }) {
       try {
         const p = await fetchProgram(clientCode);
         if (cancelled) return;
-        let journal = migrateLegacyProgramDays(toJournalProgramDays(p.days || {}));
-        if (!Object.keys(journal).length) {
-          journal = migrateLegacyProgramDays(DEFAULT_JOURNAL_PROGRAM);
-        }
+        let journal = migrateDateKeysToWeekdays(toJournalProgramDays(p.days || {}));
+        if (!Object.keys(journal).length) journal = { ...DEFAULT_JOURNAL_PROGRAM };
         setDays(journal);
+        setActiveDay(Object.keys(journal)[0] || "Пн");
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -46,19 +44,19 @@ export function TrainerProgramTable({ clientCode, disabled }) {
   if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
   if (!days) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
-  const exercises = days[selectedDate] || [];
-  const workoutDates = getWorkoutDates(days);
+  const dayKeys = Object.keys(days);
+  const exercises = days[activeDay] || [];
 
   const updateExercise = (idx, field, value) => {
-    const exs = [...(days[selectedDate] || [])];
+    const exs = [...exercises];
     exs[idx] = { ...exs[idx], [field]: value };
-    setDays({ ...days, [selectedDate]: exs });
+    setDays({ ...days, [activeDay]: exs });
   };
 
   const removeExercise = (idx) => {
     const exs = [...exercises];
     exs.splice(idx, 1);
-    setDays({ ...days, [selectedDate]: exs });
+    setDays({ ...days, [activeDay]: exs });
   };
 
   const moveExercise = (idx, dir) => {
@@ -66,27 +64,33 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     const target = idx + dir;
     if (target < 0 || target >= exs.length) return;
     [exs[idx], exs[target]] = [exs[target], exs[idx]];
-    setDays({ ...days, [selectedDate]: exs });
+    setDays({ ...days, [activeDay]: exs });
   };
 
   const addExercise = () => {
     const name = newEx.name.trim();
     const target = newEx.target.trim() || "3×10–12";
     if (!name) return;
-    setDays({
-      ...days,
-      [selectedDate]: [...exercises, { name, target }],
-    });
+    setDays({ ...days, [activeDay]: [...exercises, { name, target }] });
     setNewEx({ name: "", target: "3×10–12" });
     setShowAddForm(false);
   };
 
-  const clearDay = () => {
-    if (!exercises.length) return;
-    if (!confirm("Удалить все упражнения на этот день?")) return;
+  const addDay = () => {
+    const key = newDayKey.trim();
+    if (!key || days[key]) return;
+    setDays({ ...days, [key]: [] });
+    setActiveDay(key);
+    setNewDayKey("");
+    setAddingDay(false);
+  };
+
+  const removeDay = (key) => {
+    if (dayKeys.length <= 1) return;
     const next = { ...days };
-    delete next[selectedDate];
+    delete next[key];
     setDays(next);
+    if (activeDay === key) setActiveDay(Object.keys(next)[0]);
   };
 
   const save = async () => {
@@ -103,31 +107,43 @@ export function TrainerProgramTable({ clientCode, disabled }) {
 
   return (
     <div style={{ paddingBottom: 88 }}>
-      <WorkoutCalendar
-        selectedDate={selectedDate}
-        onSelectDate={setSelectedDate}
-        workoutDates={workoutDates}
-      />
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <Calendar size={16} color="#e0a940" style={{ flexShrink: 0 }} />
-          <div className="display" style={{ fontSize: 18, color: "#e8ecf5", lineHeight: 1.2 }}>
-            {fmtDateLong(selectedDate)}
-          </div>
-        </div>
-        {exercises.length > 0 && (
-          <button onClick={clearDay} style={{ background: "none", border: "none", color: "#c45a4a", fontSize: 12, flexShrink: 0 }}>
-            Очистить
-          </button>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {dayKeys.map((d) => (
+          <button key={d} onClick={() => setActiveDay(d)} style={{
+            flex: dayKeys.length <= 4 ? 1 : "none", minWidth: 52, padding: "10px 14px", borderRadius: 8,
+            fontWeight: 700, fontSize: 13,
+            background: activeDay === d ? "#e0a940" : "#1b212f",
+            color: activeDay === d ? "#120f08" : "#808a9e",
+            border: "1px solid " + (activeDay === d ? "#e0a940" : "#303a50"),
+          }}>{d}</button>
+        ))}
+        {!addingDay && (
+          <button onClick={() => setAddingDay(true)} style={{
+            padding: "10px 12px", borderRadius: 8, border: "1px dashed #303a50",
+            background: "none", color: "#e0a940", fontWeight: 600, fontSize: 13,
+          }}><Plus size={14} /></button>
         )}
       </div>
 
-      {exercises.length === 0 && !showAddForm && (
-        <div style={{ fontSize: 13, color: "#808a9e", textAlign: "center", padding: "12px 0 16px" }}>
-          На этот день тренировка не задана
+      {addingDay && (
+        <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          <input type="text" value={newDayKey} onChange={(e) => setNewDayKey(e.target.value)}
+            placeholder="Название дня (Пн, Вт…)" style={{ ...inputStyle, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={addDay} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
+            <button onClick={() => setAddingDay(false)} style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}><X size={16} /></button>
+          </div>
         </div>
       )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div className="display" style={{ fontSize: 20, color: "#e8ecf5" }}>{activeDay}</div>
+        {dayKeys.length > 1 && (
+          <button onClick={() => removeDay(activeDay)} style={{ background: "none", border: "none", color: "#c45a4a", fontSize: 12 }}>
+            Удалить день
+          </button>
+        )}
+      </div>
 
       {exercises.map((ex, idx) => (
         <div key={idx} style={{

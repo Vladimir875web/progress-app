@@ -15,10 +15,10 @@ import {
   shouldShowStartDebug, hasDeepLinkHint, getTelegramStartCode
 } from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedMetricsTab } from "./linkedClientTabs";
+import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
-import { StartParamDebugBanner } from "./ui/clientPrompts";
+import { ConnectToTrainerPrompt, StartParamDebugBanner } from "./ui/clientPrompts";
 
 /* ───────── defaults & utils ───────── */
 
@@ -246,7 +246,7 @@ function RoleChooser({ onChoose }) {
             desc="Составляю программы клиентам и слежу за их прогрессом"
             onClick={() => onChoose("trainer")} />
           <ChoiceCard icon={<User size={22} color="#e0a940" />} title="Я клиент"
-            desc="Веду показатели тела и профиль"
+            desc="Веду журнал тренировок и показателей тела"
             onClick={() => onChoose("client")} />
         </div>
       </div>
@@ -277,17 +277,17 @@ function getClientCode() {
 }
 
 function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking, startLinkStatus }) {
-  const [tab, setTab] = useState("metrics");
+  const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
   const reload = () => setReloadKey((k) => k + 1);
-  const handleLinked = (code) => { setClientCode(code); setTab("metrics"); };
-  const handleUnlink = () => { setClientCode(null); };
+  const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
+  const handleUnlink = () => { setClientCode(null); setTab("workout"); };
 
   useEffect(() => {
     if (startLinkSuccess) {
       setClientCode(startLinkSuccess);
-      setTab("metrics");
+      setTab("workout");
     }
   }, [startLinkSuccess]);
 
@@ -359,12 +359,16 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
+            <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        {tab === "workout" && (clientCode
+          ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
+          : <ConnectToTrainerPrompt onGoProfile={() => setTab("profile")} />)}
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}

@@ -10,6 +10,7 @@ import {
 } from "./lib/trainerDb";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets } from "./lib/workoutUtils";
 import { normalizeExercise } from "./lib/programFormat";
+import { migrateDateKeysToWeekdays } from "./lib/programDates";
 import { SyncIndicator, StickySaveBar } from "./ui/shared";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -26,14 +27,50 @@ function initSetsFromTrainerDay(exercises, existingEntry, logs, day, date) {
   return (exercises || []).map((raw) => {
     const ex = normalizeExercise(raw);
     const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
-    const numSets = ex.sets.length || parseNumSets(ex.target);
-    const savedSets = prev?.sets;
-    const lastSets = savedSets?.length ? null : findLastExerciseSets(logs, day, date, ex.name);
+    const numSets = parseNumSets(ex.target) || ex.sets?.length || 3;
+    if (prev?.sets?.length) {
+      return {
+        name: ex.name, target: ex.target,
+        sets: prev.sets.map((s) => ({ weight: s.weight ?? "", reps: s.reps ?? "" })),
+        comment: prev.comment ?? "",
+        showComment: Boolean(prev.comment),
+      };
+    }
+    const lastDate = findLastDate(logs, day, date, ex.name);
+    const lastSets = lastDate ? findLastExerciseSets(logs, day, date, ex.name) : null;
+    if (lastSets?.length) {
+      const sets = lastSets.map((s) => ({
+        weight: s.weight != null && s.weight !== "" ? String(s.weight) : "",
+        reps: s.reps != null && s.reps !== "" ? String(s.reps) : "",
+      }));
+      while (sets.length < numSets) sets.push({ weight: "", reps: "" });
+      return {
+        name: ex.name, target: ex.target,
+        sets: sets.slice(0, Math.max(numSets, sets.length)),
+        comment: "",
+        showComment: false,
+        prefilledFrom: lastDate,
+      };
+    }
     return {
       name: ex.name, target: ex.target,
-      sets: buildExerciseSets({ numSets, savedSets, lastSets }),
+      sets: buildExerciseSets({ numSets, savedSets: null, lastSets: null }),
+      comment: "",
+      showComment: false,
     };
   });
+}
+
+function findLastDate(logs, day, currentDate, exName) {
+  const candidates = Object.values(logs)
+    .filter((l) => l.day === day && l.date !== currentDate)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  for (const c of candidates) {
+    const ex = c.exercises?.find((e) => e.name === exName);
+    const done = ex?.sets?.filter((s) => s.weight && s.reps);
+    if (done?.length) return c.date;
+  }
+  return null;
 }
 
 export function LinkedWorkoutTab({ clientCode }) {
@@ -59,9 +96,10 @@ export function LinkedWorkoutTab({ clientCode }) {
           fetchWorkoutLogsMap(clientCode),
         ]);
         if (cancelled) return;
-        setProgram(prog);
+        const migratedDays = migrateDateKeysToWeekdays(prog.days || {});
+        setProgram({ days: migratedDays });
         setLogs(logMap);
-        const keys = Object.keys(prog.days || {});
+        const keys = Object.keys(migratedDays);
         if (keys.length) setDay(keys[0]);
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
@@ -98,6 +136,22 @@ export function LinkedWorkoutTab({ clientCode }) {
     });
   };
 
+  const updateComment = (exIdx, value) => {
+    setSets((prev) => {
+      const next = [...prev];
+      next[exIdx] = { ...next[exIdx], comment: value };
+      return next;
+    });
+  };
+
+  const toggleComment = (exIdx) => {
+    setSets((prev) => {
+      const next = [...prev];
+      next[exIdx] = { ...next[exIdx], showComment: !next[exIdx].showComment };
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -110,16 +164,6 @@ export function LinkedWorkoutTab({ clientCode }) {
       alert("Ошибка сохранения: " + e.message);
     }
     setSaving(false);
-  };
-
-  const lastTimeFor = (exName) => {
-    const candidates = Object.values(logs).filter((l) => l.day === day && l.date !== date).sort((a, b) => (a.date < b.date ? 1 : -1));
-    for (const c of candidates) {
-      const ex = c.exercises.find((e) => e.name === exName);
-      const done = ex?.sets?.filter((s) => s.weight && s.reps);
-      if (done?.length) return { date: c.date, sets: done };
-    }
-    return null;
   };
 
   if (!loaded) return <div style={{ padding: 40, textAlign: "center", color: "#808a9e" }}>Загрузка программы…</div>;
@@ -138,51 +182,65 @@ export function LinkedWorkoutTab({ clientCode }) {
   return (
     <div style={{ paddingBottom: 88 }}>
       <SyncIndicator />
-      <div style={{ display: "flex", gap: 8, margin: "18px 0 14px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, margin: "18px 0 14px" }}>
         {dayKeys.map((d) => (
           <button key={d} onClick={() => setDay(d)} style={{
-            flex: dayKeys.length <= 3 ? 1 : "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, fontSize: 13,
+            flex: 1, padding: "10px 0", borderRadius: 8, fontWeight: 700, fontSize: 14,
             background: day === d ? "#e0a940" : "#1b212f", color: day === d ? "#120f08" : "#808a9e",
             border: "1px solid " + (day === d ? "#e0a940" : "#303a50"),
-          }}>{d.length > 18 ? d.slice(0, 16) + "…" : d}</button>
+          }}>{d.length > 12 ? d.slice(0, 10) + "…" : d}</button>
         ))}
       </div>
 
-      <div className="display" style={{ fontSize: 20, color: "#e8ecf5", marginBottom: 4 }}>{day}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
         <Calendar size={15} color="#808a9e" />
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
       </div>
 
       {sets.map((ex, exIdx) => {
-        const last = lastTimeFor(ex.name);
         const vol = setVolume(ex.sets);
         return (
           <div key={ex.name + exIdx} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{ex.name}</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{ex.name}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexShrink: 0 }}>
                 {vol > 0 && <div style={{ fontSize: 12, color: "#e0a940", fontWeight: 600 }}>{fmtVol(vol)}</div>}
                 <div style={{ fontSize: 12, color: "#808a9e" }}>{ex.target}</div>
               </div>
             </div>
-            {last && (
-              <div style={{ fontSize: 12, color: "#7a8fa8", marginBottom: 10 }}>
-                Прошлый раз ({fmtDate(last.date)}): {last.sets.map((s) => `${s.weight}кг×${s.reps}`).join(", ")}
+            {ex.prefilledFrom && (
+              <div style={{ fontSize: 11.5, color: "#6a7a6a", marginBottom: 8 }}>
+                Подставлено из {fmtDate(ex.prefilledFrom)}
               </div>
             )}
             {ex.sets.map((s, setIdx) => (
               <div key={setIdx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: "#808a9e", width: 18 }}>{setIdx + 1}</span>
+                <span style={{ fontSize: 12, color: "#808a9e", width: 18, flexShrink: 0 }}>{setIdx + 1}</span>
                 <input type="number" placeholder="кг" value={s.weight} onChange={(e) => updateSet(exIdx, setIdx, "weight", e.target.value)} />
-                <span style={{ color: "#5a6378" }}>×</span>
+                <span style={{ color: "#5a6378", flexShrink: 0 }}>×</span>
                 <input type="number" placeholder="повт" value={s.reps} onChange={(e) => updateSet(exIdx, setIdx, "reps", e.target.value)} />
               </div>
             ))}
-            <button onClick={() => addSet(exIdx)} style={{
-              display: "flex", alignItems: "center", gap: 4, background: "none", border: "none",
-              color: "#e0a940", fontSize: 12.5, fontWeight: 600, padding: "4px 0", marginTop: 4
-            }}><Plus size={13} /> подход</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
+              <button type="button" onClick={() => addSet(exIdx)} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "none", border: "none",
+                color: "#e0a940", fontSize: 12.5, fontWeight: 600, padding: "4px 0",
+              }}><Plus size={13} /> подход</button>
+              <button type="button" onClick={() => toggleComment(exIdx)} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "none", border: "none",
+                color: ex.comment || ex.showComment ? "#8a9e8a" : "#808a9e",
+                fontSize: 12.5, fontWeight: 600, padding: "4px 0",
+              }}><Plus size={13} /> заметка</button>
+            </div>
+            {(ex.showComment || ex.comment) && (
+              <textarea
+                placeholder="Заметка: было тяжело, тянуло плечо..."
+                value={ex.comment || ""}
+                onChange={(e) => updateComment(exIdx, e.target.value)}
+                rows={2}
+                style={{ ...inputStyle, marginTop: 8, minHeight: 56, fontSize: 13.5, resize: "vertical" }}
+              />
+            )}
           </div>
         );
       })}
