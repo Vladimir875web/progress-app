@@ -19,6 +19,8 @@ import { LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
 import { StartParamDebugBanner } from "./ui/clientPrompts";
+import { ClientLanguageProvider, LanguageSwitcher, useClientLanguage } from "./ui/clientLanguage";
+import { bmiLabelText } from "./lib/clientI18n";
 
 /* ───────── defaults & utils ───────── */
 
@@ -276,7 +278,16 @@ function getClientCode() {
   try { return localStorage.getItem("client-code") || null; } catch { return null; }
 }
 
-function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking, startLinkStatus }) {
+function ClientApp(props) {
+  return (
+    <ClientLanguageProvider>
+      <ClientAppContent {...props} />
+    </ClientLanguageProvider>
+  );
+}
+
+function ClientAppContent({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking, startLinkStatus }) {
+  const { t } = useClientLanguage();
   const [tab, setTab] = useState("metrics");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
@@ -324,7 +335,7 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
         if (data.bodyMetricsFields) storageSet("body-metrics-fields", data.bodyMetricsFields);
         if (data.profile) storageSet("user-profile", data.profile);
         reload();
-      } catch { alert("Не удалось прочитать файл. Проверь формат JSON."); }
+      } catch { alert(t("importError")); }
     };
     input.click();
   };
@@ -335,17 +346,18 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px 0" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>ЖУРНАЛ</span>
-              <span style={{ fontSize: 13, color: "#808a9e", fontWeight: 500 }}>тренировок</span>
+              <span className="display" style={{ fontSize: 34, color: "#e0a940", lineHeight: 1 }}>{t("journalTitle")}</span>
+              <span style={{ fontSize: 13, color: "#808a9e", fontWeight: 500 }}>{t("journalSubtitle")}</span>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <IconBtn onClick={exportData} title="Скачать резервную копию"><Download size={16} /></IconBtn>
-              <IconBtn onClick={importData} title="Загрузить резервную копию"><Upload size={16} /></IconBtn>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <LanguageSwitcher />
+              <IconBtn onClick={exportData} title={t("exportBackup")}><Download size={16} /></IconBtn>
+              <IconBtn onClick={importData} title={t("importBackup")}><Upload size={16} /></IconBtn>
             </div>
           </div>
           {startLinkLinking && (
             <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, padding: "8px 10px", background: "#171c29", borderRadius: 8 }}>
-              Подключение к тренеру…
+              {t("linkingTrainer")}
             </div>
           )}
           {startLinkError && (
@@ -355,12 +367,12 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
           )}
           {startLinkSuccess && startLinkStatus === "linked" && (
             <div style={{ fontSize: 12.5, color: "#4caf50", marginBottom: 8, padding: "8px 10px", background: "#1a2a1a", borderRadius: 8 }}>
-              Подключено к тренеру
+              {t("linkedTrainer")}
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
-            <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
-            <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
+            <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label={t("tabMetrics")} />
+            <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label={t("tabProfile")} />
           </div>
         </div>
       </div>
@@ -792,13 +804,14 @@ function buildMetricsForm(entry, customFields) {
 }
 
 function MetricsTab() {
+  const { t, fmtDate: fmtDateLoc } = useClientLanguage();
   const [metrics, persistMetrics, loaded] = useStorage("body-metrics", {});
   const [customFields, persistCustomFields, fieldsLoaded] = useStorage("body-metrics-fields", []);
   const [date, setDate] = useState(todayISO());
   const [form, setForm] = useState(EMPTY_METRICS_FORM);
   const [addingField, setAddingField] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState("");
-  const [newFieldUnit, setNewFieldUnit] = useState("см");
+  const [newFieldUnit, setNewFieldUnit] = useState(t("unitCm"));
 
   useEffect(() => {
     if (!loaded || !fieldsLoaded) return;
@@ -835,7 +848,7 @@ function MetricsTab() {
     persistCustomFields([...customFields, { id, label, unit }]);
     setForm((prev) => ({ ...prev, custom: { ...prev.custom, [id]: "" } }));
     setNewFieldLabel("");
-    setNewFieldUnit("см");
+    setNewFieldUnit(t("unitCm"));
     setAddingField(false);
   };
 
@@ -850,7 +863,7 @@ function MetricsTab() {
 
   const sorted = useMemo(() => Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1)), [metrics]);
   const chartData = sorted.map((m) => ({
-    label: fmtDate(m.date),
+    label: fmtDateLoc(m.date),
     weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
     pulse: m.pulse ? parseFloat(m.pulse) : null,
@@ -871,20 +884,20 @@ function MetricsTab() {
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
       </div>
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Вес, кг"><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} /></FieldRow>
-        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Талия, см"><input type="number" step="0.5" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} /></FieldRow>
-        <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label="Грудь, см (опц.)"><input type="number" step="0.5" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} /></FieldRow>
-        <FieldRow icon={<Activity size={15} color="#e0a940" />} label="Пульс утро, уд/мин"><input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} /></FieldRow>
-        <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label="Сон, ч (опц.)"><input type="number" step="0.5" placeholder="7.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label={t("weightKg")}><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label={t("waistCm")}><input type="number" step="0.5" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label={t("chestCmOpt")}><input type="number" step="0.5" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} /></FieldRow>
+        <FieldRow icon={<Activity size={15} color="#e0a940" />} label={t("pulseMorning")}><input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} /></FieldRow>
+        <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label={t("sleepOpt")}><input type="number" step="0.5" placeholder="7.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} /></FieldRow>
 
         {customFields.length > 0 && (
           <div style={{ borderTop: "1px solid #2b344a", marginTop: 6, paddingTop: 14 }}>
-            <div style={{ fontSize: 12, color: "#808a9e", fontWeight: 600, marginBottom: 10 }}>СВОИ ПАРАМЕТРЫ</div>
+            <div style={{ fontSize: 12, color: "#808a9e", fontWeight: 600, marginBottom: 10 }}>{t("customParams")}</div>
             {customFields.map((field) => (
               <FieldRow key={field.id} icon={<Ruler size={15} color="#e0a940" />} label={field.unit ? `${field.label}, ${field.unit}` : field.label}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input type="number" step="0.1" value={form.custom[field.id] ?? ""} onChange={(e) => setCustomValue(field.id, e.target.value)} style={{ flex: 1 }} />
-                  <button onClick={() => removeCustomField(field.id)} title="Удалить параметр" style={{ background: "none", border: "none", padding: 4, flexShrink: 0 }}>
+                  <button onClick={() => removeCustomField(field.id)} title={t("removeParam")} style={{ background: "none", border: "none", padding: 4, flexShrink: 0 }}>
                     <Trash2 size={14} color="#5a6378" />
                   </button>
                 </div>
@@ -895,14 +908,14 @@ function MetricsTab() {
 
         {addingField ? (
           <div style={{ borderTop: "1px solid #2b344a", marginTop: 10, paddingTop: 14 }}>
-            <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 8 }}>Новый параметр</div>
+            <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 8 }}>{t("newParam")}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <input type="text" value={newFieldLabel} onChange={(e) => setNewFieldLabel(e.target.value)} placeholder="Например, Бицеп" />
-              <input type="text" value={newFieldUnit} onChange={(e) => setNewFieldUnit(e.target.value)} placeholder="Единица: см, %, кг..." />
+              <input type="text" value={newFieldLabel} onChange={(e) => setNewFieldLabel(e.target.value)} placeholder={t("paramExample")} />
+              <input type="text" value={newFieldUnit} onChange={(e) => setNewFieldUnit(e.target.value)} placeholder={t("unitPlaceholder")} />
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button onClick={addCustomField} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
-              <button onClick={() => { setAddingField(false); setNewFieldLabel(""); setNewFieldUnit("см"); }} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}>Отмена</button>
+              <button onClick={addCustomField} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>{t("add")}</button>
+              <button onClick={() => { setAddingField(false); setNewFieldLabel(""); setNewFieldUnit(t("unitCm")); }} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}>{t("cancel")}</button>
             </div>
           </div>
         ) : (
@@ -910,7 +923,7 @@ function MetricsTab() {
             width: "100%", marginTop: 12, padding: "11px 0", borderRadius: 8, border: "1px dashed #303a50",
             background: "none", color: "#e0a940", fontWeight: 600, fontSize: 13,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6
-          }}><Plus size={14} /> Добавить свой параметр</button>
+          }}><Plus size={14} /> {t("addCustomParam")}</button>
         )}
 
       </div>
@@ -918,12 +931,12 @@ function MetricsTab() {
         width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
         background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить показатели</>}</button>
+      }}>{saved ? <><Check size={17} /> {t("saved")}</> : <><Save size={17} /> {t("saveMetrics")}</>}</button>
       {chartData.length >= 2 && (
         <>
-          <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
-          <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#6b9eb8" />
-          <ChartBlock title="Пульс, уд/мин" data={chartData} dataKey="pulse" color="#7a8fa8" refLine={90} />
+          <ChartBlock title={t("weightKg")} data={chartData} dataKey="weight" color="#e0a940" />
+          <ChartBlock title={t("waistCm")} data={chartData} dataKey="waist" color="#6b9eb8" />
+          <ChartBlock title={t("pulseMorning")} data={chartData} dataKey="pulse" color="#7a8fa8" refLine={90} />
           {customFields.map((field, i) => {
             const hasData = chartData.filter((d) => d[field.id] !== null).length >= 2;
             if (!hasData) return null;
@@ -934,15 +947,15 @@ function MetricsTab() {
       )}
       {sorted.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, fontWeight: 600 }}>ИСТОРИЯ</div>
+          <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, fontWeight: 600 }}>{t("history")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {sorted.slice().reverse().slice(0, 10).map((m) => (
               <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: customFields.length ? 4 : 0 }}>
-                  <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDate(m.date)}</span>
-                  <span>{m.weight ? `${m.weight}кг` : "—"}</span>
-                  <span>{m.waist ? `${m.waist}см` : "—"}</span>
-                  <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
+                  <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDateLoc(m.date)}</span>
+                  <span>{m.weight ? `${m.weight}${t("kg")}` : "—"}</span>
+                  <span>{m.waist ? `${m.waist}${t("cm")}` : "—"}</span>
+                  <span>{m.pulse ? `${m.pulse}${t("bpm")}` : "—"}</span>
                 </div>
                 {customFields.some((f) => m.custom?.[f.id]) && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11.5, marginTop: 4 }}>
@@ -963,6 +976,7 @@ function MetricsTab() {
 /* ───────── PROFILE TAB ───────── */
 
 function ProfileTab({ clientCode, onLinked, onUnlink, onResetRole }) {
+  const { t, deltaHint } = useClientLanguage();
   const [profile, persist, loaded] = useStorage("user-profile", { name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "" });
   const [form, setForm] = useState(profile);
   const [saved, setSaved] = useState(false);
@@ -985,38 +999,39 @@ function ProfileTab({ clientCode, onLinked, onUnlink, onResetRole }) {
 
   return (
     <div>
-      <div style={{ margin: "18px 0 14px", fontSize: 13, color: "#808a9e" }}>Базовые параметры — заполни один раз, обновляй по необходимости.</div>
+      <div style={{ margin: "18px 0 14px", fontSize: 13, color: "#808a9e" }}>{t("profileIntro")}</div>
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Имя (опц.)"><input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Как к тебе обращаться" style={inputStyle} /></FieldRow>
-        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Начальный вес, кг">
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label={t("nameOpt")}><input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("namePlaceholder")} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label={t("startWeight")}>
           <input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })}
-            placeholder="Вес, когда начал программу" style={inputStyle} />
+            placeholder={t("startWeightPlaceholder")} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Рост, см"><input type="number" value={form.height} onChange={(e) => setForm({ ...form, height: e.target.value })} style={inputStyle} /></FieldRow>
-        <FieldRow icon={<Calendar size={15} color="#e0a940" />} label="Год рождения (опц.)"><input type="number" value={form.birthYear} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} style={inputStyle} /></FieldRow>
-        <FieldRow icon={<TrendingUp size={15} color="#e0a940" />} label="Цель"><input type="text" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder="Набрать массу / сбросить жир / сила..." style={inputStyle} /></FieldRow>
-        <FieldRow icon={<Scale size={15} color="#6b9eb8" />} label="Целевой вес, кг"><input type="number" step="0.1" value={form.targetWeight} onChange={(e) => setForm({ ...form, targetWeight: e.target.value })} style={inputStyle} /></FieldRow>
-        <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label="Заметки"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Травмы, ограничения, добавки..." style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} /></FieldRow>
+        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label={t("heightCm")}><input type="number" value={form.height} onChange={(e) => setForm({ ...form, height: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Calendar size={15} color="#e0a940" />} label={t("birthYearOpt")}><input type="number" value={form.birthYear} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<TrendingUp size={15} color="#e0a940" />} label={t("goal")}><input type="text" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} placeholder={t("goalPlaceholder")} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<Scale size={15} color="#6b9eb8" />} label={t("targetWeight")}><input type="number" step="0.1" value={form.targetWeight} onChange={(e) => setForm({ ...form, targetWeight: e.target.value })} style={inputStyle} /></FieldRow>
+        <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label={t("notes")}><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder={t("notesPlaceholder")} style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} /></FieldRow>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-        <StatCard label="Тренировок" value={workoutCount || "—"} />
-        <StatCard label="BMI" value={computedBmi || "—"} hint={computedBmi ? bmiLabel(computedBmi) : "нужен рост + вес"} />
-        <StatCard label="Старт" value={form.weight ? `${form.weight}кг` : "—"} hint={weightDelta !== null ? `${weightDelta > 0 ? "+" : ""}${weightDelta}кг от старта` : undefined} />
+        <StatCard label={t("statWorkouts")} value={workoutCount || "—"} />
+        <StatCard label={t("statBmi")} value={computedBmi || "—"} hint={computedBmi ? bmiLabelText(computedBmi, t) : t("bmiNeedData")} />
+        <StatCard label={t("statStart")} value={form.weight ? `${form.weight}${t("kg")}` : "—"} hint={weightDelta !== null ? deltaHint(weightDelta) : undefined} />
       </div>
       <button onClick={handleSave} style={{
         width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
         background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-      }}>{saved ? <><Check size={17} /> Сохранено</> : <><Save size={17} /> Сохранить профиль</>}</button>
+      }}>{saved ? <><Check size={17} /> {t("saved")}</> : <><Save size={17} /> {t("saveProfile")}</>}</button>
       <TrainerLinkSection clientCode={clientCode} onLinked={onLinked} onUnlink={onUnlink} />
       <div style={{ textAlign: "center", marginTop: 8 }}>
-        <RoleSwitchLink onResetRole={onResetRole} />
+        <RoleSwitchLink onResetRole={onResetRole} label={t("switchRole")} />
       </div>
     </div>
   );
 }
 
 function TrainerLinkSection({ clientCode, onLinked, onUnlink, autoConnectCode }) {
+  const { t } = useClientLanguage();
   const [code, setCode] = useState(clientCode || getClientCode());
   const [input, setInput] = useState(autoConnectCode || "");
   const [error, setError] = useState("");
@@ -1027,7 +1042,7 @@ function TrainerLinkSection({ clientCode, onLinked, onUnlink, autoConnectCode })
   const linkWithCode = async (raw) => {
     const c = String(raw).trim().toUpperCase();
     if (!c) return;
-    if (!cloudEnabled()) { setError("Облако не настроено. Администратор должен добавить Supabase в переменные окружения."); return; }
+    if (!cloudEnabled()) { setError(t("cloudNotConfigured")); return; }
     setChecking(true);
     setError("");
     try {
@@ -1057,26 +1072,26 @@ function TrainerLinkSection({ clientCode, onLinked, onUnlink, autoConnectCode })
 
   return (
     <div style={{ marginTop: 20 }}>
-      <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 10, fontWeight: 600 }}>ПОДКЛЮЧЕНИЕ К ТРЕНЕРУ (ОПЦ.)</div>
+      <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 10, fontWeight: 600 }}>{t("trainerLinkTitle")}</div>
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14 }}>
         {code ? (
           <>
-            <div style={{ fontSize: 13, color: "#808a9e", marginBottom: 8 }}>Подключён. Код: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{code}</span></div>
+            <div style={{ fontSize: 13, color: "#808a9e", marginBottom: 8 }}>{t("connectedCode")} <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{code}</span></div>
             <button onClick={unlink} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#808a9e", fontSize: 12, padding: 0 }}>
-              <LogOut size={13} /> Отключиться
+              <LogOut size={13} /> {t("disconnect")}
             </button>
           </>
         ) : (
           <>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13, color: "#808a9e" }}>
-              <Link2 size={15} color="#e0a940" /> Введи код от тренера
+              <Link2 size={15} color="#e0a940" /> {t("enterTrainerCode")}
             </div>
             <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="K7X29Q" style={{ letterSpacing: 2, fontFamily: "monospace", textAlign: "center" }} />
             {error && <div style={{ color: "#e2795a", fontSize: 12.5, marginTop: 8 }}>{error}</div>}
             <button onClick={link} disabled={checking} style={{
               width: "100%", marginTop: 10, padding: "11px 0", borderRadius: 8, border: "none",
               background: "#e0a940", color: "#120f08", fontWeight: 700, fontSize: 13.5
-            }}>{checking ? "Проверка…" : "Подключиться"}</button>
+            }}>{checking ? t("checking") : t("connect")}</button>
           </>
         )}
       </div>
@@ -1111,14 +1126,6 @@ function StatCard({ label, value, hint }) {
       {hint && <div style={{ fontSize: 10, color: "#5a6378", marginTop: 2 }}>{hint}</div>}
     </div>
   );
-}
-
-function bmiLabel(bmi) {
-  const v = parseFloat(bmi);
-  if (v < 18.5) return "недовес";
-  if (v < 25) return "норма";
-  if (v < 30) return "избыток";
-  return "ожирение";
 }
 
 function FieldRow({ icon, label, children }) {

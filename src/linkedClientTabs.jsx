@@ -13,6 +13,7 @@ import { normalizeExercise } from "./lib/programFormat";
 import { migrateDateKeysToWeekdays } from "./lib/programDates";
 import { SyncIndicator, StickySaveBar } from "./ui/shared";
 import { WorkoutDatePicker } from "./ui/workoutDatePicker";
+import { useClientLanguage } from "./ui/clientLanguage";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
@@ -354,6 +355,7 @@ function ChartBlock({ title, data, dataKey, color }) {
 }
 
 export function LinkedMetricsTab({ clientCode }) {
+  const { t, fmtDate: fmtDateLoc } = useClientLanguage();
   const [metrics, setMetrics] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -365,7 +367,7 @@ export function LinkedMetricsTab({ clientCode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!cloudEnabled()) { setLoadError("Supabase не настроен"); setLoaded(true); return; }
+      if (!cloudEnabled()) { setLoadError(t("supabaseNotConfigured")); setLoaded(true); return; }
       try {
         const map = await fetchBodyMetricsMap(clientCode);
         if (!cancelled) setMetrics(map);
@@ -375,7 +377,7 @@ export function LinkedMetricsTab({ clientCode }) {
       if (!cancelled) setLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [clientCode]);
+  }, [clientCode, t]);
 
   useEffect(() => {
     const entry = metrics[date];
@@ -398,44 +400,44 @@ export function LinkedMetricsTab({ clientCode }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
     } catch (e) {
-      alert("Ошибка сохранения: " + e.message);
+      alert(t("saveError") + " " + e.message);
     }
     setSaving(false);
   };
 
   const sorted = useMemo(() => Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1)), [metrics]);
   const chartData = sorted.map((m) => ({
-    label: fmtDate(m.date),
+    label: fmtDateLoc(m.date),
     weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
   }));
 
-  if (!loaded) return <div style={{ padding: 40, textAlign: "center", color: "#808a9e" }}>Загрузка…</div>;
+  if (!loaded) return <div style={{ padding: 40, textAlign: "center", color: "#808a9e" }}>{t("loading")}</div>;
   if (loadError) return <div style={{ padding: 40, textAlign: "center", color: "#e2795a" }}>{loadError}</div>;
 
   return (
     <div style={{ position: "relative" }}>
-      <SyncIndicator />
+      <SyncIndicator label={t("synced")} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 14px" }}>
         <Activity size={16} color="#e0a940" />
-        <span style={{ fontSize: 14, fontWeight: 600 }}>Показатели тела</span>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{t("bodyMetrics")}</span>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ marginLeft: "auto", width: 150 }} />
       </div>
 
       <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <FieldRow icon={<Scale size={15} color="#e0a940" />} label="Текущий вес, кг">
+        <FieldRow icon={<Scale size={15} color="#e0a940" />} label={t("currentWeight")}>
           <input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label="Талия, см">
+        <FieldRow icon={<Ruler size={15} color="#e0a940" />} label={t("waistCm")}>
           <input type="number" step="0.1" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label="Грудь, см">
+        <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label={t("chestCm")}>
           <input type="number" step="0.1" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Activity size={15} color="#7a8fa8" />} label="Пульс покоя, уд/мин">
+        <FieldRow icon={<Activity size={15} color="#7a8fa8" />} label={t("restingPulse")}>
           <input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Calendar size={15} color="#808a9e" />} label="Сон, ч">
+        <FieldRow icon={<Calendar size={15} color="#808a9e" />} label={t("sleepHours")}>
           <input type="number" step="0.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} style={inputStyle} />
         </FieldRow>
       </div>
@@ -444,26 +446,26 @@ export function LinkedMetricsTab({ clientCode }) {
         width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
         background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1
-      }}>{saved ? <><Check size={17} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={17} /> Сохранить</>}</button>
+      }}>{saved ? <><Check size={17} /> {t("saved")}</> : saving ? t("saving") : <><Save size={17} /> {t("save")}</>}</button>
 
       {chartData.length >= 2 && (
         <>
-          <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
-          <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#6b9eb8" />
+          <ChartBlock title={t("weightKg")} data={chartData} dataKey="weight" color="#e0a940" />
+          <ChartBlock title={t("waistCm")} data={chartData} dataKey="waist" color="#6b9eb8" />
         </>
       )}
 
       {sorted.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, fontWeight: 600 }}>ИСТОРИЯ</div>
+          <div style={{ fontSize: 12.5, color: "#808a9e", marginBottom: 8, fontWeight: 600 }}>{t("history")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {sorted.slice().reverse().slice(0, 10).map((m) => (
               <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
-                  <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDate(m.date)}</span>
-                  <span>{m.weight ? `${m.weight}кг` : "—"}</span>
-                  <span>{m.waist ? `${m.waist}см` : "—"}</span>
-                  <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
+                  <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDateLoc(m.date)}</span>
+                  <span>{m.weight ? `${m.weight}${t("kg")}` : "—"}</span>
+                  <span>{m.waist ? `${m.waist}${t("cm")}` : "—"}</span>
+                  <span>{m.pulse ? `${m.pulse}${t("bpm")}` : "—"}</span>
                 </div>
               </div>
             ))}

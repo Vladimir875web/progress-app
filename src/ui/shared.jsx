@@ -1,14 +1,14 @@
 import React from "react";
 import { Check, Save } from "lucide-react";
 
-export function SyncIndicator() {
+export function SyncIndicator({ label = "Синхронизировано" }) {
   return (
     <div style={{
       position: "fixed", top: 10, right: 14, display: "flex", alignItems: "center", gap: 5,
       fontSize: 11, color: "#6a9e7a", zIndex: 30, pointerEvents: "none",
     }}>
       <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#4caf50", flexShrink: 0 }} />
-      Синхронизировано
+      {label}
     </div>
   );
 }
