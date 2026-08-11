@@ -14,17 +14,23 @@ const METHODS = [
 
 const methodLabel = (id) => METHODS.find((m) => m.id === id)?.label || id;
 
+const FORM_INPUT_HEIGHT = 40;
+
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
-  borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", minWidth: 0,
+  borderRadius: 8, padding: "0 10px", fontSize: 14, width: "100%", minWidth: 0,
+  height: FORM_INPUT_HEIGHT, lineHeight: `${FORM_INPUT_HEIGHT - 2}px`,
   boxSizing: "border-box", fontFamily: "'Inter', sans-serif",
 };
 
 const dateInputStyle = {
   ...inputStyle,
-  fontSize: 13,
   colorScheme: "dark",
+  appearance: "none",
+  WebkitAppearance: "none",
 };
+
+const SESSION_PRESETS = ["1", "8", "10", "12", "16"];
 
 export function ClientMembershipPanel({ clientCode, disabled }) {
   const [data, setData] = useState(null);
@@ -150,20 +156,20 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
       {showForm && (
         <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 12, padding: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#e0a940", marginBottom: 12 }}>Новая оплата</div>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8, marginBottom: 8 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Дата</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "stretch" }}>
+            <label style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#808a9e" }}>Дата</span>
               <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={dateInputStyle} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Сумма, CZK</div>
+            </label>
+            <label style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 11, color: "#808a9e" }}>Сумма, CZK</span>
               <input type="number" min="0" step="100" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="3000" style={inputStyle} />
-            </div>
+            </label>
           </div>
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Тренировок в абонементе</div>
             <div style={{ display: "flex", gap: 6 }}>
-              {["8", "10", "12", "16"].map((n) => (
+              {SESSION_PRESETS.map((n) => (
                 <button
                   key={n}
                   type="button"
@@ -181,7 +187,7 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
                 min="1"
                 value={form.sessions}
                 onChange={(e) => setForm({ ...form, sessions: e.target.value })}
-                style={{ ...inputStyle, width: 56, flexShrink: 0, textAlign: "center", padding: "8px 4px" }}
+                style={{ ...inputStyle, width: 48, flexShrink: 0, textAlign: "center", padding: "0 4px" }}
               />
             </div>
           </div>
