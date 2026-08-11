@@ -9,6 +9,7 @@ import {
   fetchBodyMetricsMap, saveBodyMetric, cloudEnabled
 } from "./lib/trainerDb";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets } from "./lib/workoutUtils";
+import { normalizeExercise } from "./lib/programFormat";
 import { SyncIndicator, StickySaveBar } from "./ui/shared";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -22,9 +23,10 @@ const inputStyle = {
 };
 
 function initSetsFromTrainerDay(exercises, existingEntry, logs, day, date) {
-  return (exercises || []).map((ex) => {
+  return (exercises || []).map((raw) => {
+    const ex = normalizeExercise(raw);
     const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
-    const numSets = parseNumSets(ex.target);
+    const numSets = ex.sets.length || parseNumSets(ex.target);
     const savedSets = prev?.sets;
     const lastSets = savedSets?.length ? null : findLastExerciseSets(logs, day, date, ex.name);
     return {

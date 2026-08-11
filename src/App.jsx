@@ -11,13 +11,14 @@ import {
   fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes
 } from "./lib/trainerDb";
 import {
-  getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink, shouldShowStartDebug
+  getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink,
+  shouldShowStartDebug, hasDeepLinkHint, getTelegramStartCode
 } from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedMetricsTab } from "./linkedClientTabs";
+import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
-import { StartParamDebugBanner } from "./ui/clientPrompts";
+import { ConnectToTrainerPrompt, StartParamDebugBanner } from "./ui/clientPrompts";
 
 /* ───────── defaults & utils ───────── */
 
@@ -128,15 +129,20 @@ const globalStyles = `
 /* ───────── root app ───────── */
 
 export default function App() {
-  const [role, setRole] = useState(() => storageGet("app-role"));
-  const [startLink, setStartLink] = useState({ linking: false, error: null, success: null, status: null });
+  const [role, setRole] = useState(() => {
+    const saved = storageGet("app-role");
+    if (saved) return saved;
+    if (hasDeepLinkHint() || getTelegramStartCode()) return "client";
+    return null;
+  });
+  const [startLink, setStartLink] = useState({ linking: false, error: null, success: null, status: null, debug: null });
 
   useEffect(() => {
     initTelegramWebApp();
 
     (async () => {
       const debug = getTelegramStartDebugInfo();
-      if (shouldShowStartDebug()) console.log("[PROGRESS] Telegram start debug:", debug);
+      if (shouldShowStartDebug()) console.log("[PROGRESS] Telegram start debug (init):", debug);
 
       const startCode = await waitForTelegramStartCode();
       if (!startCode) {
@@ -150,16 +156,20 @@ export default function App() {
         return;
       }
 
+      if (shouldShowStartDebug()) console.log("[PROGRESS] auto-link: код из start_param →", startCode);
+
       setRole("client");
       storageSet("app-role", "client");
       setStartLink({ linking: true, error: null, success: null, status: "linking", debug });
       try {
         await linkClientCode(startCode);
+        if (shouldShowStartDebug()) console.log("[PROGRESS] auto-link: успешно подключён", startCode);
         setStartLink({
           linking: false, error: null, success: startCode,
           status: "linked", debug: getTelegramStartDebugInfo(),
         });
       } catch (e) {
+        console.error("[PROGRESS] auto-link failed:", e.message);
         setStartLink({
           linking: false, error: e.message, success: null,
           status: "error", debug: getTelegramStartDebugInfo(),
@@ -178,7 +188,12 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#0e111a", color: "#e8ecf5", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <style>{globalStyles}</style>
-      <StartParamDebugBanner extra={startLink.status ? `status: ${startLink.status}` : null} />
+      <StartParamDebugBanner
+        extra={[
+          startLink.status ? `status: ${startLink.status}` : null,
+          startLink.error ? `error: ${startLink.error}` : null,
+        ].filter(Boolean).join(" · ") || null}
+      />
       {!role ? (
         <RoleChooser onChoose={chooseRole} />
       ) : role === "trainer" ? (
@@ -246,15 +261,18 @@ function getClientCode() {
 }
 
 function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking }) {
-  const [tab, setTab] = useState("metrics");
+  const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
   const reload = () => setReloadKey((k) => k + 1);
-  const handleLinked = (code) => { setClientCode(code); setTab("metrics"); };
-  const handleUnlink = () => { setClientCode(null); };
+  const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
+  const handleUnlink = () => { setClientCode(null); setTab("workout"); };
 
   useEffect(() => {
-    if (startLinkSuccess) setClientCode(startLinkSuccess);
+    if (startLinkSuccess) {
+      setClientCode(startLinkSuccess);
+      setTab("workout");
+    }
   }, [startLinkSuccess]);
 
   const exportData = () => {
@@ -325,12 +343,16 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
+            <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
+        {tab === "workout" && (clientCode
+          ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
+          : <ConnectToTrainerPrompt onGoProfile={() => setTab("profile")} />)}
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}

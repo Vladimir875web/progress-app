@@ -3,7 +3,8 @@ import { Link2 } from "lucide-react";
 import { getTelegramStartDebugInfo, shouldShowStartDebug } from "../lib/telegram";
 
 export function StartParamDebugBanner({ extra }) {
-  if (!shouldShowStartDebug()) return null;
+  const show = shouldShowStartDebug() || Boolean(extra?.includes("error") || extra?.includes("invalid_param"));
+  if (!show) return null;
   const info = getTelegramStartDebugInfo();
   return (
     <div style={{

@@ -4,6 +4,21 @@ export function getTelegramWebApp() {
   return typeof window !== "undefined" ? window.Telegram?.WebApp : undefined;
 }
 
+function readUrlStartParam() {
+  if (typeof window === "undefined") return null;
+  const search = new URLSearchParams(window.location.search);
+  const fromQuery = search.get("tgWebAppStartParam");
+  if (fromQuery) return fromQuery;
+
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash) return null;
+  const fromHash = new URLSearchParams(hash).get("tgWebAppStartParam");
+  if (fromHash) return fromHash;
+
+  const hashMatch = hash.match(/(?:^|&)tgWebAppStartParam=([^&]+)/);
+  return hashMatch ? decodeURIComponent(hashMatch[1]) : null;
+}
+
 export function getTelegramStartParamRaw() {
   if (typeof window === "undefined") return null;
 
@@ -11,10 +26,7 @@ export function getTelegramStartParamRaw() {
   const fromInit = tg?.initDataUnsafe?.start_param;
   if (fromInit != null && fromInit !== "") return String(fromInit);
 
-  const fromUrl = new URLSearchParams(window.location.search).get("tgWebAppStartParam");
-  if (fromUrl) return fromUrl;
-
-  return null;
+  return readUrlStartParam();
 }
 
 export function normalizeClientCode(raw) {
@@ -27,19 +39,28 @@ export function getTelegramStartCode() {
   return normalizeClientCode(getTelegramStartParamRaw());
 }
 
+/** Есть ли признаки открытия по invite-ссылке (до появления start_param). */
+export function hasDeepLinkHint() {
+  if (typeof window === "undefined") return false;
+  if (getTelegramStartCode()) return true;
+  const raw = getTelegramStartParamRaw();
+  if (raw) return true;
+  const href = window.location.href;
+  return href.includes("tgWebAppStartParam") || href.includes("startapp=");
+}
+
 export function getTelegramStartDebugInfo() {
   const tg = getTelegramWebApp();
   const raw = getTelegramStartParamRaw();
   return {
     hasTelegram: Boolean(tg),
     start_param: tg?.initDataUnsafe?.start_param ?? null,
-    tgWebAppStartParam: typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("tgWebAppStartParam")
-      : null,
+    tgWebAppStartParam: readUrlStartParam(),
     rawParam: raw,
     parsedCode: normalizeClientCode(raw),
     platform: tg?.platform ?? null,
     href: typeof window !== "undefined" ? window.location.href : null,
+    deepLinkHint: hasDeepLinkHint(),
   };
 }
 
@@ -49,28 +70,57 @@ export function shouldShowStartDebug() {
   return new URLSearchParams(window.location.search).get("debug") === "1";
 }
 
-/** Ждём start_param только если есть признаки deep link — иначе сразу null. */
-export async function waitForTelegramStartCode({ maxMs = 1200, intervalMs = 50 } = {}) {
+function logStartDebug(label, extra) {
+  if (!shouldShowStartDebug()) return;
+  console.log(`[PROGRESS] ${label}`, extra ?? getTelegramStartDebugInfo());
+}
+
+/**
+ * Ждём start_param в Telegram Mini App — параметр может прийти с задержкой после tg.ready().
+ * В обычном браузере без признаков deep link возвращаем null сразу.
+ */
+export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 75 } = {}) {
   const immediate = getTelegramStartCode();
-  if (immediate) return immediate;
+  if (immediate) {
+    logStartDebug("start_param (immediate)", { code: immediate });
+    return immediate;
+  }
 
   const raw = getTelegramStartParamRaw();
-  if (raw && !normalizeClientCode(raw)) return null;
+  if (raw && !normalizeClientCode(raw)) {
+    logStartDebug("start_param invalid", { raw });
+    return null;
+  }
 
   const inTelegram = Boolean(getTelegramWebApp());
-  const urlHint = typeof window !== "undefined" && window.location.search.includes("tgWebAppStartParam");
+  const urlHint = typeof window !== "undefined" && (
+    window.location.href.includes("tgWebAppStartParam") ||
+    window.location.href.includes("startapp=")
+  );
 
-  if (!inTelegram && !urlHint && !raw) return null;
+  if (!inTelegram && !urlHint && !raw) {
+    logStartDebug("no deep link hint — skip wait");
+    return null;
+  }
 
-  const deadline = Date.now() + (raw || urlHint ? maxMs : 400);
+  const waitMs = urlHint || raw ? maxMs : 600;
+  logStartDebug("waiting for start_param…", { inTelegram, urlHint, raw, waitMs });
+
+  const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     const code = getTelegramStartCode();
-    if (code) return code;
+    if (code) {
+      logStartDebug("start_param received", { code, waitedMs: waitMs - (deadline - Date.now()) });
+      return code;
+    }
     const tg = getTelegramWebApp();
     if (tg) tg.ready();
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return getTelegramStartCode();
+
+  const final = getTelegramStartCode();
+  logStartDebug(final ? "start_param (final)" : "start_param timeout", { code: final, ...getTelegramStartDebugInfo() });
+  return final;
 }
 
 export function buildInviteLink(clientCode) {
