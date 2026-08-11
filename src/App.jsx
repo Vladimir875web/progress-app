@@ -8,7 +8,8 @@ import {
 import {
   cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
   linkClientCode,
-  fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes
+  fetchWorkoutLogsMap, fetchBodyMetricsMap, fetchClientTrainerNotes, saveClientTrainerNotes,
+  fetchClientProfile, saveClientProfile
 } from "./lib/trainerDb";
 import {
   getTelegramStartDebugInfo, waitForTelegramStartCode, buildInviteLink,
@@ -983,7 +984,14 @@ function ProfileTab({ clientCode, onLinked, onUnlink, onResetRole }) {
 
   useEffect(() => { if (loaded) setForm(profile); }, [loaded, profile]);
 
-  const handleSave = () => { persist(form); setSaved(true); setTimeout(() => setSaved(false), 1800); };
+  const handleSave = async () => {
+    persist(form);
+    if (clientCode && cloudEnabled()) {
+      try { await saveClientProfile(clientCode, form); } catch (e) { console.error(e); }
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
 
   const latestWeight = useMemo(() => {
     const metrics = storageGet("body-metrics") || {};
@@ -1316,12 +1324,12 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
         <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
-        <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
+        <SubTab active={tab === "profile"} onClick={() => setTab("profile")} label="Профиль" />
         <SubTab active={tab === "link"} onClick={() => setTab("link")} label="Ссылка" />
       </div>
       {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
       {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
-      {tab === "progress" && <ClientWorkoutProgressView code={client.code} disabled={cloudDisabled} />}
+      {tab === "profile" && <ClientProfileView code={client.code} disabled={cloudDisabled} />}
       {tab === "link" && (
         <div>
           {inviteLink ? (
@@ -1471,8 +1479,27 @@ function ClientMetricsView({ code, disabled }) {
   );
 }
 
-function ClientWorkoutProgressView({ code, disabled }) {
-  const [logs, setLogs] = useState(null);
+function ProfileReadRow({ label, value }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 15, color: value ? "#e8ecf5" : "#5a6378", lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{value || "—"}</div>
+    </div>
+  );
+}
+
+function trainerBmiLabel(bmi) {
+  const v = parseFloat(bmi);
+  if (v < 18.5) return "недовес";
+  if (v < 25) return "норма";
+  if (v < 30) return "избыток";
+  return "ожирение";
+}
+
+function ClientProfileView({ code, disabled }) {
+  const [profile, setProfile] = useState(null);
+  const [metrics, setMetrics] = useState({});
+  const [workoutCount, setWorkoutCount] = useState(0);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
@@ -1480,8 +1507,15 @@ function ClientWorkoutProgressView({ code, disabled }) {
     (async () => {
       if (disabled || !cloudEnabled()) return;
       try {
-        const l = await fetchWorkoutLogsMap(code);
-        if (!cancelled) setLogs(l);
+        const [p, m, logs] = await Promise.all([
+          fetchClientProfile(code),
+          fetchBodyMetricsMap(code),
+          fetchWorkoutLogsMap(code),
+        ]);
+        if (cancelled) return;
+        setProfile(p);
+        setMetrics(m);
+        setWorkoutCount(Object.keys(logs).length);
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -1491,24 +1525,43 @@ function ClientWorkoutProgressView({ code, disabled }) {
 
   if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
   if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
-  if (!logs) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
+  if (!profile) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
-  const workoutDates = Object.values(logs).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const sortedMetrics = Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1));
+  const latestWeight = sortedMetrics.filter((m) => m.weight).pop()?.weight;
+  const weightForBmi = latestWeight ? parseFloat(latestWeight) : (profile.weight ? parseFloat(profile.weight) : null);
+  const computedBmi = weightForBmi && profile.height
+    ? (weightForBmi / Math.pow(parseFloat(profile.height) / 100, 2)).toFixed(1)
+    : null;
+  const weightDelta = latestWeight && profile.weight
+    ? (parseFloat(latestWeight) - parseFloat(profile.weight)).toFixed(1)
+    : null;
+
+  const hasData = profile.name || profile.weight || profile.height || profile.goal || profile.notes;
 
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "0 0 8px" }}>ПОСЛЕДНИЕ ТРЕНИРОВКИ</div>
-      {workoutDates.length === 0 && <div style={{ fontSize: 13, color: "#808a9e" }}>Клиент ещё не вносил тренировки</div>}
-      {workoutDates.slice(0, 12).map((w, i) => (
-        <div key={i} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
-          <div style={{ fontSize: 12.5, color: "#e0a940", fontWeight: 700, marginBottom: 4 }}>{fmtDate(w.date)} · {w.day}</div>
-          {w.exercises.map((ex, j) => {
-            const done = ex.sets.filter((s) => s.weight && s.reps);
-            if (!done.length) return null;
-            return <div key={j} style={{ fontSize: 12, color: "#808a9e" }}>{ex.name}: {done.map((s) => `${s.weight}×${s.reps}`).join(", ")}</div>;
-          })}
-        </div>
-      ))}
+      {!hasData && (
+        <div style={{ fontSize: 13, color: "#808a9e", marginBottom: 14 }}>Клиент ещё не заполнил профиль</div>
+      )}
+      <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+        <ProfileReadRow label="Имя" value={profile.name} />
+        <ProfileReadRow label="Начальный вес, кг" value={profile.weight} />
+        <ProfileReadRow label="Рост, см" value={profile.height} />
+        <ProfileReadRow label="Год рождения" value={profile.birthYear} />
+        <ProfileReadRow label="Цель" value={profile.goal} />
+        <ProfileReadRow label="Целевой вес, кг" value={profile.targetWeight} />
+        <ProfileReadRow label="Заметки" value={profile.notes} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <StatCard label="Тренировок" value={workoutCount || "—"} />
+        <StatCard label="BMI" value={computedBmi || "—"} hint={computedBmi ? trainerBmiLabel(computedBmi) : "нужен рост + вес"} />
+        <StatCard
+          label="Старт"
+          value={profile.weight ? `${profile.weight}кг` : "—"}
+          hint={weightDelta !== null ? `${weightDelta > 0 ? "+" : ""}${weightDelta}кг от старта` : undefined}
+        />
+      </div>
     </div>
   );
 }

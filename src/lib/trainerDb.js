@@ -97,6 +97,30 @@ export async function saveClientTrainerNotes(clientCode, notes) {
   if (error) throw error;
 }
 
+const EMPTY_CLIENT_PROFILE = {
+  name: "", weight: "", height: "", birthYear: "", goal: "", targetWeight: "", notes: "",
+};
+
+export async function fetchClientProfile(clientCode) {
+  requireSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("profile")
+    .eq("code", clientCode)
+    .maybeSingle();
+  if (error) throw error;
+  return { ...EMPTY_CLIENT_PROFILE, ...(data?.profile || {}) };
+}
+
+export async function saveClientProfile(clientCode, profile) {
+  requireSupabase();
+  const { error } = await supabase
+    .from("clients")
+    .update({ profile })
+    .eq("code", clientCode);
+  if (error) throw error;
+}
+
 export async function clientExists(code) {
   requireSupabase();
   const normalized = String(code).trim().toUpperCase();
