@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Save, Check, Trash2 } from "lucide-react";
+import { Plus, Save, Check, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
 import { cloudEnabled, fetchProgram, saveProgramDays } from "../lib/trainerDb";
-import { normalizeProgramDays, serializeProgramDays, setsToTarget } from "../lib/programFormat";
+import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
+import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
 
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
-  borderRadius: 6, padding: "6px 4px", fontSize: 13, width: "100%", fontFamily: "'Inter', sans-serif",
+  borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", fontFamily: "'Inter', sans-serif",
 };
 
-const cellInput = { ...inputStyle, textAlign: "center", padding: "7px 4px" };
-
 export function TrainerProgramTable({ clientCode, disabled }) {
-  const [program, setProgram] = useState(null);
+  const [days, setDays] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [dayName, setDayName] = useState("Тренировка");
-  const [selectedDay, setSelectedDay] = useState(null);
+  const [activeDay, setActiveDay] = useState("Пн");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newEx, setNewEx] = useState({ name: "", target: "3×10–12" });
+  const [addingDay, setAddingDay] = useState(false);
+  const [newDayKey, setNewDayKey] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -25,15 +27,10 @@ export function TrainerProgramTable({ clientCode, disabled }) {
       try {
         const p = await fetchProgram(clientCode);
         if (cancelled) return;
-        const days = normalizeProgramDays(p.days || {});
-        const keys = Object.keys(days);
-        setProgram({ days });
-        if (keys.length) {
-          setSelectedDay(keys[0]);
-          setDayName(keys[0]);
-        } else {
-          setSelectedDay(null);
-        }
+        let journal = toJournalProgramDays(p.days || {});
+        if (!Object.keys(journal).length) journal = { ...DEFAULT_JOURNAL_PROGRAM };
+        setDays(journal);
+        setActiveDay(Object.keys(journal)[0] || "Пн");
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -43,76 +40,64 @@ export function TrainerProgramTable({ clientCode, disabled }) {
 
   if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
   if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
-  if (!program) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
+  if (!days) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
-  const dayKeys = Object.keys(program.days);
-  const activeDay = selectedDay && program.days[selectedDay] ? selectedDay : dayKeys[0] || null;
-  const exercises = activeDay ? program.days[activeDay] : [];
+  const dayKeys = Object.keys(days);
+  const exercises = days[activeDay] || [];
 
-  const updateDays = (days) => setProgram({ days });
-
-  const ensureDay = () => {
-    const name = dayName.trim() || "Тренировка";
-    if (!program.days[name]) {
-      updateDays({ ...program.days, [name]: [] });
-    }
-    setSelectedDay(name);
-    setDayName(name);
-    return name;
-  };
-
-  const updateSet = (idx, setIdx, field, value) => {
-    const day = activeDay || ensureDay();
-    const exs = [...program.days[day]];
-    const ex = { ...exs[idx], sets: [...exs[idx].sets] };
-    ex.sets[setIdx] = { ...ex.sets[setIdx], [field]: value };
-    ex.target = setsToTarget(ex.sets);
-    exs[idx] = ex;
-    updateDays({ ...program.days, [day]: exs });
-  };
-
-  const updateName = (idx, value) => {
-    const day = activeDay || ensureDay();
-    const exs = [...program.days[day]];
-    exs[idx] = { ...exs[idx], name: value };
-    updateDays({ ...program.days, [day]: exs });
-  };
-
-  const addExercise = () => {
-    const day = ensureDay();
-    const exs = [...(program.days[day] || []), {
-      name: "",
-      sets: [{ weight: "", reps: "" }, { weight: "", reps: "" }, { weight: "", reps: "" }],
-      target: "",
-    }];
-    updateDays({ ...program.days, [day]: exs });
+  const updateExercise = (idx, field, value) => {
+    const exs = [...exercises];
+    exs[idx] = { ...exs[idx], [field]: value };
+    setDays({ ...days, [activeDay]: exs });
   };
 
   const removeExercise = (idx) => {
-    const day = activeDay;
-    if (!day) return;
-    const exs = [...program.days[day]];
+    const exs = [...exercises];
     exs.splice(idx, 1);
-    updateDays({ ...program.days, [day]: exs });
+    setDays({ ...days, [activeDay]: exs });
   };
 
-  const renameDay = () => {
-    const newName = dayName.trim();
-    if (!newName || !activeDay || newName === activeDay) return;
-    const days = { ...program.days };
-    days[newName] = days[activeDay];
-    delete days[activeDay];
-    updateDays(days);
-    setSelectedDay(newName);
+  const moveExercise = (idx, dir) => {
+    const exs = [...exercises];
+    const target = idx + dir;
+    if (target < 0 || target >= exs.length) return;
+    [exs[idx], exs[target]] = [exs[target], exs[idx]];
+    setDays({ ...days, [activeDay]: exs });
+  };
+
+  const addExercise = () => {
+    const name = newEx.name.trim();
+    const target = newEx.target.trim() || "3×10–12";
+    if (!name) return;
+    setDays({
+      ...days,
+      [activeDay]: [...exercises, { name, target }],
+    });
+    setNewEx({ name: "", target: "3×10–12" });
+    setShowAddForm(false);
+  };
+
+  const addDay = () => {
+    const key = newDayKey.trim();
+    if (!key || days[key]) return;
+    setDays({ ...days, [key]: [] });
+    setActiveDay(key);
+    setNewDayKey("");
+    setAddingDay(false);
+  };
+
+  const removeDay = (key) => {
+    if (dayKeys.length <= 1) return;
+    const next = { ...days };
+    delete next[key];
+    setDays(next);
+    if (activeDay === key) setActiveDay(Object.keys(next)[0]);
   };
 
   const save = async () => {
     setSaving(true);
     try {
-      const day = activeDay || ensureDay();
-      const payload = serializeProgramDays(program.days);
-      if (!payload[day]) payload[day] = [];
-      await saveProgramDays(clientCode, payload);
+      await saveProgramDays(clientCode, serializeJournalProgramDays(days));
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (e) {
@@ -123,104 +108,90 @@ export function TrainerProgramTable({ clientCode, disabled }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 6 }}>НАЗВАНИЕ ТРЕНИРОВКИ</div>
-        <input
-          type="text"
-          value={dayName}
-          onChange={(e) => setDayName(e.target.value)}
-          onBlur={renameDay}
-          placeholder="Понедельник — Спина"
-          style={inputStyle}
-        />
+      <div style={{ fontSize: 13, color: "#808a9e", marginBottom: 12 }}>
+        Как в журнале: дни недели, упражнение + цель (напр. 3×10–12). Клиент видит это при записи тренировки.
       </div>
 
-      {dayKeys.length > 1 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-          {dayKeys.map((d) => (
-            <button key={d} onClick={() => { setSelectedDay(d); setDayName(d); }} style={{
-              padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-              border: "1px solid " + (d === activeDay ? "#e0a940" : "#303a50"),
-              background: d === activeDay ? "#e0a940" : "transparent",
-              color: d === activeDay ? "#120f08" : "#808a9e",
-            }}>{d}</button>
-          ))}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {dayKeys.map((d) => (
+          <button key={d} onClick={() => setActiveDay(d)} style={{
+            flex: dayKeys.length <= 4 ? 1 : "none", minWidth: 52, padding: "10px 14px", borderRadius: 8,
+            fontWeight: 700, fontSize: 13,
+            background: activeDay === d ? "#e0a940" : "#1b212f",
+            color: activeDay === d ? "#120f08" : "#808a9e",
+            border: "1px solid " + (activeDay === d ? "#e0a940" : "#303a50"),
+          }}>{d}</button>
+        ))}
+        {!addingDay ? (
+          <button onClick={() => setAddingDay(true)} style={{
+            padding: "10px 12px", borderRadius: 8, border: "1px dashed #303a50",
+            background: "none", color: "#e0a940", fontWeight: 600, fontSize: 13,
+          }}><Plus size={14} /></button>
+        ) : null}
+      </div>
+
+      {addingDay && (
+        <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          <input type="text" value={newDayKey} onChange={(e) => setNewDayKey(e.target.value)}
+            placeholder="Название дня (Пн, Вт…)" style={{ ...inputStyle, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={addDay} style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
+            <button onClick={() => setAddingDay(false)} style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}><X size={16} /></button>
+          </div>
         </div>
       )}
 
-      <div style={{ overflowX: "auto", marginBottom: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 320 }}>
-          <thead>
-            <tr style={{ fontSize: 11, color: "#808a9e", textAlign: "center" }}>
-              <th style={{ textAlign: "left", padding: "4px 6px", fontWeight: 600 }}>Упражнение</th>
-              <th colSpan={2} style={{ padding: "4px 2px" }}>1</th>
-              <th colSpan={2} style={{ padding: "4px 2px" }}>2</th>
-              <th colSpan={2} style={{ padding: "4px 2px" }}>3</th>
-              <th style={{ width: 28 }} />
-            </tr>
-            <tr style={{ fontSize: 10, color: "#5a6378", textAlign: "center" }}>
-              <th />
-              <th style={{ padding: "0 2px" }}>кг</th>
-              <th style={{ padding: "0 2px" }}>×</th>
-              <th style={{ padding: "0 2px" }}>кг</th>
-              <th style={{ padding: "0 2px" }}>×</th>
-              <th style={{ padding: "0 2px" }}>кг</th>
-              <th style={{ padding: "0 2px" }}>×</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {exercises.map((ex, idx) => (
-              <tr key={idx} style={{ borderTop: "1px solid #2b344a" }}>
-                <td style={{ padding: "6px 4px", minWidth: 120 }}>
-                  <input
-                    type="text"
-                    value={ex.name}
-                    onChange={(e) => updateName(idx, e.target.value)}
-                    placeholder="Жим лёжа"
-                    style={{ ...inputStyle, fontSize: 13 }}
-                  />
-                </td>
-                {ex.sets.map((s, si) => (
-                  <React.Fragment key={si}>
-                    <td style={{ padding: "4px 2px", width: 44 }}>
-                      <input type="number" value={s.weight} placeholder="—"
-                        onChange={(e) => updateSet(idx, si, "weight", e.target.value)} style={cellInput} />
-                    </td>
-                    <td style={{ padding: "4px 2px", width: 44 }}>
-                      <input type="number" value={s.reps} placeholder="—"
-                        onChange={(e) => updateSet(idx, si, "reps", e.target.value)} style={cellInput} />
-                    </td>
-                  </React.Fragment>
-                ))}
-                <td style={{ padding: "4px", textAlign: "center" }}>
-                  <button onClick={() => removeExercise(idx)} style={{ background: "none", border: "none", padding: 4 }}>
-                    <Trash2 size={14} color="#5a6378" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div className="display" style={{ fontSize: 20, color: "#e8ecf5" }}>{activeDay}</div>
+        {dayKeys.length > 1 && (
+          <button onClick={() => removeDay(activeDay)} style={{ background: "none", border: "none", color: "#c45a4a", fontSize: 12 }}>
+            Удалить день
+          </button>
+        )}
       </div>
 
-      {exercises.length === 0 && (
-        <div style={{ fontSize: 13, color: "#808a9e", textAlign: "center", padding: "16px 0" }}>
-          Добавь упражнения — укажи вес и повторения для каждого подхода
+      {exercises.map((ex, idx) => (
+        <div key={idx} style={{
+          background: "#171c29", border: "1px solid #2b344a", borderRadius: 10,
+          padding: 12, marginBottom: 8, display: "flex", gap: 8, alignItems: "flex-start",
+        }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+            <button onClick={() => moveExercise(idx, -1)} disabled={idx === 0} style={{ background: "none", border: "none", padding: 0, color: idx === 0 ? "#303a50" : "#808a9e" }}><ChevronUp size={14} /></button>
+            <button onClick={() => moveExercise(idx, 1)} disabled={idx === exercises.length - 1} style={{ background: "none", border: "none", padding: 0, color: idx === exercises.length - 1 ? "#303a50" : "#808a9e" }}><ChevronDown size={14} /></button>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <input type="text" value={ex.name} onChange={(e) => updateExercise(idx, "name", e.target.value)} placeholder="Название упражнения" style={inputStyle} />
+            <input type="text" value={ex.target} onChange={(e) => updateExercise(idx, "target", e.target.value)} placeholder="3×10–12" style={{ ...inputStyle, fontSize: 13 }} />
+          </div>
+          <button onClick={() => removeExercise(idx)} style={{ background: "none", border: "none", padding: 4, marginTop: 4 }}>
+            <Trash2 size={15} color="#5a6378" />
+          </button>
         </div>
-      )}
+      ))}
 
-      <button onClick={addExercise} style={{
-        width: "100%", padding: "10px 0", marginBottom: 12, borderRadius: 8,
-        border: "1px dashed #303a50", background: "none", color: "#e0a940",
-        fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-      }}><Plus size={14} /> Добавить упражнение</button>
+      {showAddForm ? (
+        <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#808a9e" }}>Новое упражнение</div>
+          <input type="text" placeholder="Название" value={newEx.name} onChange={(e) => setNewEx({ ...newEx, name: e.target.value })} style={{ ...inputStyle, marginBottom: 8 }} />
+          <input type="text" placeholder="Цель, напр. 3×10–12" value={newEx.target} onChange={(e) => setNewEx({ ...newEx, target: e.target.value })} style={{ ...inputStyle, marginBottom: 10 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={addExercise} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
+            <button onClick={() => { setShowAddForm(false); setNewEx({ name: "", target: "3×10–12" }); }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}><X size={16} /></button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowAddForm(true)} style={{
+          width: "100%", padding: "12px 0", borderRadius: 10, marginBottom: 12,
+          background: "#1b212f", border: "1px dashed #303a50", color: "#e0a940",
+          fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}><Plus size={16} /> Упражнение</button>
+      )}
 
       <button onClick={save} disabled={saving} style={{
-        width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
-        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 14.5,
+        width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
+        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1,
-      }}>{saved ? <><Check size={16} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={16} /> Сохранить тренировку</>}</button>
+      }}>{saved ? <><Check size={17} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={17} /> Сохранить программу</>}</button>
     </div>
   );
 }

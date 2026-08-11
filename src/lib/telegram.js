@@ -31,8 +31,11 @@ export function getTelegramStartParamRaw() {
 
 export function normalizeClientCode(raw) {
   if (raw == null || raw === "") return null;
-  const code = String(raw).trim().toUpperCase();
-  return CLIENT_CODE_RE.test(code) ? code : null;
+  let code = String(raw).trim().toUpperCase();
+  code = code.split(/[?&#]/)[0].trim();
+  if (CLIENT_CODE_RE.test(code)) return code;
+  const match = code.match(/[A-Z0-9]{6}/);
+  return match && CLIENT_CODE_RE.test(match[0]) ? match[0] : null;
 }
 
 export function getTelegramStartCode() {
@@ -46,7 +49,7 @@ export function hasDeepLinkHint() {
   const raw = getTelegramStartParamRaw();
   if (raw) return true;
   const href = window.location.href;
-  return href.includes("tgWebAppStartParam") || href.includes("startapp=");
+  return href.includes("tgWebAppStartParam");
 }
 
 export function getTelegramStartDebugInfo() {
@@ -93,10 +96,7 @@ export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 75 }
   }
 
   const inTelegram = Boolean(getTelegramWebApp());
-  const urlHint = typeof window !== "undefined" && (
-    window.location.href.includes("tgWebAppStartParam") ||
-    window.location.href.includes("startapp=")
-  );
+  const urlHint = typeof window !== "undefined" && window.location.href.includes("tgWebAppStartParam");
 
   if (!inTelegram && !urlHint && !raw) {
     logStartDebug("no deep link hint — skip wait");
@@ -124,8 +124,9 @@ export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 75 }
 }
 
 export function buildInviteLink(clientCode) {
-  const bot = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
-  const app = import.meta.env.VITE_TELEGRAM_APP_SHORT_NAME;
-  if (!bot || !app || !clientCode) return null;
-  return `https://t.me/${bot.replace(/^@/, "")}/${app}?startapp=${clientCode}`;
+  const bot = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME || "").replace(/^@/, "").trim();
+  const app = (import.meta.env.VITE_TELEGRAM_APP_SHORT_NAME || "").replace(/^\/+|\/+$/g, "").trim();
+  const code = normalizeClientCode(clientCode);
+  if (!bot || !app || !code) return null;
+  return `https://t.me/${bot}/${app}?startapp=${code}`;
 }

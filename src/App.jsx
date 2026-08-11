@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
@@ -136,11 +136,15 @@ export default function App() {
     return null;
   });
   const [startLink, setStartLink] = useState({ linking: false, error: null, success: null, status: null, debug: null });
+  const inviteLinkHandled = useRef(false);
 
   useEffect(() => {
     initTelegramWebApp();
 
     (async () => {
+      if (inviteLinkHandled.current) return;
+      inviteLinkHandled.current = true;
+
       const debug = getTelegramStartDebugInfo();
       if (shouldShowStartDebug()) console.log("[PROGRESS] Telegram start debug (init):", debug);
 
@@ -152,6 +156,17 @@ export default function App() {
         setStartLink({
           linking: false, error: null, success: null,
           status: debug.rawParam ? "invalid_param" : "no_param", debug,
+        });
+        return;
+      }
+
+      const storedCode = (() => { try { return localStorage.getItem("client-code"); } catch { return null; } })();
+      if (storedCode === startCode) {
+        setRole("client");
+        storageSet("app-role", "client");
+        setStartLink({
+          linking: false, error: null, success: startCode,
+          status: "already_linked", debug: getTelegramStartDebugInfo(),
         });
         return;
       }
@@ -204,6 +219,7 @@ export default function App() {
           startLinkError={startLink.error}
           startLinkSuccess={startLink.success}
           startLinkLinking={startLink.linking}
+          startLinkStatus={startLink.status}
         />
       )}
     </div>
@@ -260,7 +276,7 @@ function getClientCode() {
   try { return localStorage.getItem("client-code") || null; } catch { return null; }
 }
 
-function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking }) {
+function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking, startLinkStatus }) {
   const [tab, setTab] = useState("workout");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
@@ -337,9 +353,9 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
               {startLinkError}
             </div>
           )}
-          {startLinkSuccess && (
+          {startLinkSuccess && startLinkStatus === "linked" && (
             <div style={{ fontSize: 12.5, color: "#4caf50", marginBottom: 8, padding: "8px 10px", background: "#1a2a1a", borderRadius: 8 }}>
-              Подключено к тренеру · код {startLinkSuccess}
+              Подключено к тренеру
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
@@ -1281,8 +1297,11 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
   const inviteLink = buildInviteLink(client.code);
 
   const copyInvite = async () => {
-    const text = inviteLink || client.code;
-    try { await navigator.clipboard.writeText(text); } catch { /* noop */ }
+    if (!inviteLink) {
+      try { await navigator.clipboard.writeText(client.code); } catch { /* noop */ }
+    } else {
+      try { await navigator.clipboard.writeText(inviteLink); } catch { /* noop */ }
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -1290,22 +1309,26 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
   return (
     <div style={{ paddingTop: 18 }}>
       <button onClick={onBack} style={{ background: "none", border: "none", color: "#808a9e", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
-      <div className="display" style={{ fontSize: 26, marginBottom: 4 }}>{client.name}</div>
-      <button onClick={copyInvite} style={{
-        display: "flex", alignItems: "center", gap: 6, background: "#171c29", border: "1px solid #2b344a",
-        borderRadius: 8, padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 8, width: "100%",
-        justifyContent: "center"
-      }}>
-        <Link2 size={15} color="#e0a940" />
-        {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
-      </button>
-      <div style={{ fontSize: 11.5, color: "#5a6378", marginBottom: 12, lineHeight: 1.5 }}>
-        {inviteLink ? (
-          <>Клиент откроет приложение сразу в своём режиме: <span style={{ fontFamily: "monospace", color: "#808a9e", wordBreak: "break-all" }}>{inviteLink}</span></>
-        ) : (
-          <>Добавь <code style={{ color: "#808a9e" }}>VITE_TELEGRAM_BOT_USERNAME</code> и <code style={{ color: "#808a9e" }}>VITE_TELEGRAM_APP_SHORT_NAME</code> в .env. Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span></>
-        )}
-      </div>
+      <div className="display" style={{ fontSize: 26, marginBottom: 12 }}>{client.name}</div>
+      {inviteLink ? (
+        <button onClick={copyInvite} style={{
+          display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
+          background: "#171c29", border: "1px solid #2b344a", borderRadius: 8,
+          padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16, width: "100%",
+          textAlign: "left",
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#e0a940", fontWeight: 600 }}>
+            <Link2 size={15} />
+            {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
+          </span>
+          <span style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all", color: "#5a6378" }}>{inviteLink}</span>
+        </button>
+      ) : (
+        <div style={{ fontSize: 12, color: "#808a9e", marginBottom: 16, lineHeight: 1.5 }}>
+          Добавь <code>VITE_TELEGRAM_BOT_USERNAME</code> и <code>VITE_TELEGRAM_APP_SHORT_NAME</code> в Vercel.
+          Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span>
+        </div>
+      )}
       <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Тренировка" />

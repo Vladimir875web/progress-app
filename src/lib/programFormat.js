@@ -58,3 +58,33 @@ export function serializeProgramDays(days) {
   }
   return out;
 }
+
+/** Формат журнала: только name + target (как в workout-tracker). */
+export function toJournalExercise(ex) {
+  const norm = normalizeExercise(ex);
+  return {
+    name: norm.name,
+    target: norm.target || "3×10–12",
+  };
+}
+
+export function toJournalProgramDays(days) {
+  const out = {};
+  for (const [day, exercises] of Object.entries(days || {})) {
+    out[day] = (exercises || []).map(toJournalExercise);
+  }
+  return out;
+}
+
+export function serializeJournalProgramDays(days) {
+  const out = {};
+  for (const [day, exercises] of Object.entries(days || {})) {
+    out[day] = (exercises || [])
+      .map((ex) => ({
+        name: String(ex?.name || "").trim(),
+        target: String(ex?.target || "3×10–12").trim() || "3×10–12",
+      }))
+      .filter((ex) => ex.name);
+  }
+  return out;
+}
