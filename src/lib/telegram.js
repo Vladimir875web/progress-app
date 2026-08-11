@@ -123,9 +123,32 @@ export async function waitForTelegramStartCode({ maxMs = 3000, intervalMs = 75 }
   return final;
 }
 
+export function normalizeBotUsername(raw) {
+  let s = String(raw || "").trim().replace(/^@/, "");
+  if (!s) return "";
+  const fromTme = s.match(/(?:https?:\/\/)?t\.me\/([^/?#]+)/i);
+  if (fromTme) return fromTme[1];
+  return s.split(/[/?#]/)[0];
+}
+
+export function normalizeAppShortName(raw, botUsername) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  const fromTme = s.match(/(?:https?:\/\/)?t\.me\/[^/?#]+\/([^/?#]+)/i);
+  if (fromTme) return fromTme[1];
+  if (botUsername && s.toLowerCase().startsWith(`${botUsername.toLowerCase()}/`)) {
+    return s.slice(botUsername.length + 1).split(/[/?#]/)[0];
+  }
+  if (s.includes("/")) {
+    const parts = s.split("/").filter(Boolean);
+    return parts[parts.length - 1].split("?")[0];
+  }
+  return s.replace(/^\/+|\/+$/g, "").split("?")[0];
+}
+
 export function buildInviteLink(clientCode) {
-  const bot = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME || "").replace(/^@/, "").trim();
-  const app = (import.meta.env.VITE_TELEGRAM_APP_SHORT_NAME || "").replace(/^\/+|\/+$/g, "").trim();
+  const bot = normalizeBotUsername(import.meta.env.VITE_TELEGRAM_BOT_USERNAME);
+  const app = normalizeAppShortName(import.meta.env.VITE_TELEGRAM_APP_SHORT_NAME, bot);
   const code = normalizeClientCode(clientCode);
   if (!bot || !app || !code) return null;
   return `https://t.me/${bot}/${app}?startapp=${code}`;

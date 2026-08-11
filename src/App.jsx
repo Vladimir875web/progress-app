@@ -15,10 +15,10 @@ import {
   shouldShowStartDebug, hasDeepLinkHint, getTelegramStartCode
 } from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
+import { LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
-import { ConnectToTrainerPrompt, StartParamDebugBanner } from "./ui/clientPrompts";
+import { StartParamDebugBanner } from "./ui/clientPrompts";
 
 /* ───────── defaults & utils ───────── */
 
@@ -246,7 +246,7 @@ function RoleChooser({ onChoose }) {
             desc="Составляю программы клиентам и слежу за их прогрессом"
             onClick={() => onChoose("trainer")} />
           <ChoiceCard icon={<User size={22} color="#e0a940" />} title="Я клиент"
-            desc="Веду журнал тренировок и показателей тела"
+            desc="Веду показатели тела и профиль"
             onClick={() => onChoose("client")} />
         </div>
       </div>
@@ -277,17 +277,17 @@ function getClientCode() {
 }
 
 function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLinking, startLinkStatus }) {
-  const [tab, setTab] = useState("workout");
+  const [tab, setTab] = useState("metrics");
   const [reloadKey, setReloadKey] = useState(0);
   const [clientCode, setClientCode] = useState(() => startLinkSuccess || getClientCode());
   const reload = () => setReloadKey((k) => k + 1);
-  const handleLinked = (code) => { setClientCode(code); setTab("workout"); };
-  const handleUnlink = () => { setClientCode(null); setTab("workout"); };
+  const handleLinked = (code) => { setClientCode(code); setTab("metrics"); };
+  const handleUnlink = () => { setClientCode(null); };
 
   useEffect(() => {
     if (startLinkSuccess) {
       setClientCode(startLinkSuccess);
-      setTab("workout");
+      setTab("metrics");
     }
   }, [startLinkSuccess]);
 
@@ -359,16 +359,12 @@ function ClientApp({ onResetRole, startLinkError, startLinkSuccess, startLinkLin
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
-            <TabButton active={tab === "workout"} onClick={() => setTab("workout")} icon={<Dumbbell size={16} />} label="Тренировки" />
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label="Показатели" />
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label="Профиль" />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 60px" }}>
-        {tab === "workout" && (clientCode
-          ? <LinkedWorkoutTab key={clientCode + reloadKey} clientCode={clientCode} />
-          : <ConnectToTrainerPrompt onGoProfile={() => setTab("profile")} />)}
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}
@@ -1309,34 +1305,41 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
   return (
     <div style={{ paddingTop: 18 }}>
       <button onClick={onBack} style={{ background: "none", border: "none", color: "#808a9e", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
-      <div className="display" style={{ fontSize: 26, marginBottom: 12 }}>{client.name}</div>
-      {inviteLink ? (
-        <button onClick={copyInvite} style={{
-          display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
-          background: "#171c29", border: "1px solid #2b344a", borderRadius: 8,
-          padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16, width: "100%",
-          textAlign: "left",
-        }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#e0a940", fontWeight: 600 }}>
-            <Link2 size={15} />
-            {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
-          </span>
-          <span style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all", color: "#5a6378" }}>{inviteLink}</span>
-        </button>
-      ) : (
-        <div style={{ fontSize: 12, color: "#808a9e", marginBottom: 16, lineHeight: 1.5 }}>
-          Добавь <code>VITE_TELEGRAM_BOT_USERNAME</code> и <code>VITE_TELEGRAM_APP_SHORT_NAME</code> в Vercel.
-          Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span>
+      <div className="display" style={{ fontSize: 26, marginBottom: 14 }}>{client.name}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Тренировка" />
+        <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
+        <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
+        <SubTab active={tab === "link"} onClick={() => setTab("link")} label="Ссылка" />
+      </div>
+      {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
+      {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
+      {tab === "progress" && <ClientWorkoutProgressView code={client.code} disabled={cloudDisabled} />}
+      {tab === "link" && (
+        <div>
+          {inviteLink ? (
+            <button onClick={copyInvite} style={{
+              display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
+              background: "#171c29", border: "1px solid #2b344a", borderRadius: 8,
+              padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16, width: "100%",
+              textAlign: "left",
+            }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#e0a940", fontWeight: 600 }}>
+                <Link2 size={15} />
+                {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
+              </span>
+              <span style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all", color: "#5a6378" }}>{inviteLink}</span>
+            </button>
+          ) : (
+            <div style={{ fontSize: 12, color: "#808a9e", marginBottom: 16, lineHeight: 1.5 }}>
+              В Vercel укажи <code>VITE_TELEGRAM_BOT_USERNAME</code> = <strong>t_progress_tracker_bot</strong> и{" "}
+              <code>VITE_TELEGRAM_APP_SHORT_NAME</code> = <strong>app</strong> (только короткое имя, без t.me/).
+              Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span>
+            </div>
+          )}
+          <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
         </div>
       )}
-      <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Тренировка" />
-        <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
-      </div>
-      {tab === "program"
-        ? <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />
-        : <ClientProgressView code={client.code} disabled={cloudDisabled} />}
     </div>
   );
 }
@@ -1398,8 +1401,7 @@ function TrainerNotesPanel({ clientCode, disabled }) {
   );
 }
 
-function ClientProgressView({ code, disabled }) {
-  const [logs, setLogs] = useState(null);
+function ClientMetricsView({ code, disabled }) {
   const [metrics, setMetrics] = useState(null);
   const [loadError, setLoadError] = useState("");
 
@@ -1408,8 +1410,8 @@ function ClientProgressView({ code, disabled }) {
     (async () => {
       if (disabled || !cloudEnabled()) return;
       try {
-        const [l, m] = await Promise.all([fetchWorkoutLogsMap(code), fetchBodyMetricsMap(code)]);
-        if (!cancelled) { setLogs(l); setMetrics(m); }
+        const m = await fetchBodyMetricsMap(code);
+        if (!cancelled) setMetrics(m);
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -1419,11 +1421,20 @@ function ClientProgressView({ code, disabled }) {
 
   if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
   if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
-  if (!logs || !metrics) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
+  if (!metrics) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
-  const workoutDates = Object.values(logs).sort((a, b) => (a.date < b.date ? 1 : -1));
   const metricRows = Object.values(metrics).sort((a, b) => (a.date > b.date ? 1 : -1));
-  const chartData = metricRows.map((m) => ({ label: fmtDate(m.date), weight: m.weight ? parseFloat(m.weight) : null, waist: m.waist ? parseFloat(m.waist) : null }));
+  const chartData = metricRows.map((m) => ({
+    label: fmtDate(m.date),
+    weight: m.weight ? parseFloat(m.weight) : null,
+    waist: m.waist ? parseFloat(m.waist) : null,
+    chest: m.chest ? parseFloat(m.chest) : null,
+    pulse: m.pulse ? parseFloat(m.pulse) : null,
+  }));
+
+  if (!metricRows.length) {
+    return <div style={{ fontSize: 13, color: "#808a9e", padding: "24px 0", textAlign: "center" }}>Клиент ещё не вносил показатели</div>;
+  }
 
   return (
     <div>
@@ -1431,11 +1442,57 @@ function ClientProgressView({ code, disabled }) {
         <>
           <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
           <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#6b9eb8" />
+          <ChartBlock title="Грудь, см" data={chartData} dataKey="chest" color="#7a8fa8" />
+          <ChartBlock title="Пульс, уд/мин" data={chartData} dataKey="pulse" color="#808a9e" />
         </>
       )}
-      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "18px 0 8px" }}>ПОСЛЕДНИЕ ТРЕНИРОВКИ</div>
+      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "18px 0 8px" }}>ИСТОРИЯ ПОКАЗАТЕЛЕЙ</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {metricRows.slice().reverse().map((m) => (
+          <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e", fontSize: 12.5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+              <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDate(m.date)}</span>
+              <span>{m.weight ? `${m.weight}кг` : "—"}</span>
+              <span>{m.waist ? `${m.waist}см` : "—"}</span>
+              <span>{m.chest ? `${m.chest}см` : "—"}</span>
+              <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ClientWorkoutProgressView({ code, disabled }) {
+  const [logs, setLogs] = useState(null);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (disabled || !cloudEnabled()) return;
+      try {
+        const l = await fetchWorkoutLogsMap(code);
+        if (!cancelled) setLogs(l);
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, disabled]);
+
+  if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
+  if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
+  if (!logs) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
+
+  const workoutDates = Object.values(logs).sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "0 0 8px" }}>ПОСЛЕДНИЕ ТРЕНИРОВКИ</div>
       {workoutDates.length === 0 && <div style={{ fontSize: 13, color: "#808a9e" }}>Клиент ещё не вносил тренировки</div>}
-      {workoutDates.slice(0, 8).map((w, i) => (
+      {workoutDates.slice(0, 12).map((w, i) => (
         <div key={i} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
           <div style={{ fontSize: 12.5, color: "#e0a940", fontWeight: 700, marginBottom: 4 }}>{fmtDate(w.date)} · {w.day}</div>
           {w.exercises.map((ex, j) => {

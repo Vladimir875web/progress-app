@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Save, Check, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Check, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
 import { cloudEnabled, fetchProgram, saveProgramDays } from "../lib/trainerDb";
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
+import { StickySaveBar } from "./shared";
 
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
@@ -107,7 +108,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
   };
 
   return (
-    <div>
+    <div style={{ paddingBottom: 88 }}>
       <div style={{ fontSize: 13, color: "#808a9e", marginBottom: 12 }}>
         Как в журнале: дни недели, упражнение + цель (напр. 3×10–12). Клиент видит это при записи тренировки.
       </div>
@@ -187,11 +188,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
         }}><Plus size={16} /> Упражнение</button>
       )}
 
-      <button onClick={save} disabled={saving} style={{
-        width: "100%", padding: "14px 0", borderRadius: 10, border: "none",
-        background: saved ? "#4a7a5a" : "#e0a940", color: "#120f08", fontWeight: 800, fontSize: 15,
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: saving ? 0.7 : 1,
-      }}>{saved ? <><Check size={17} /> Сохранено</> : saving ? "Сохранение…" : <><Save size={17} /> Сохранить программу</>}</button>
+      <StickySaveBar onSave={save} saved={saved} saving={saving} label="Сохранить программу" />
     </div>
   );
 }
