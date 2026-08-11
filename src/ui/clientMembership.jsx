@@ -4,7 +4,7 @@ import { cloudEnabled, fetchClientMembership, saveClientMembership } from "../li
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
-const fmtMoney = (n) => `${Number(n).toLocaleString("ru-RU")} ₽`;
+const fmtMoney = (n) => `${Number(n).toLocaleString("cs-CZ")} CZK`;
 
 const METHODS = [
   { id: "cash", label: "Наличные", icon: Banknote },
@@ -16,7 +16,14 @@ const methodLabel = (id) => METHODS.find((m) => m.id === id)?.label || id;
 
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
-  borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", fontFamily: "'Inter', sans-serif",
+  borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", minWidth: 0,
+  boxSizing: "border-box", fontFamily: "'Inter', sans-serif",
+};
+
+const dateInputStyle = {
+  ...inputStyle,
+  fontSize: 13,
+  colorScheme: "dark",
 };
 
 export function ClientMembershipPanel({ clientCode, disabled }) {
@@ -143,14 +150,14 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
       {showForm && (
         <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 12, padding: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#e0a940", marginBottom: 12 }}>Новая оплата</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8, marginBottom: 8 }}>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Дата</div>
-              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={inputStyle} />
+              <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={dateInputStyle} />
             </div>
-            <div>
-              <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Сумма, ₽</div>
-              <input type="number" min="0" step="100" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="5000" style={inputStyle} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>Сумма, CZK</div>
+              <input type="number" min="0" step="100" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="3000" style={inputStyle} />
             </div>
           </div>
           <div style={{ marginBottom: 8 }}>
