@@ -3,7 +3,7 @@ import { Plus, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
 import { cloudEnabled, fetchProgram, saveProgramDays } from "../lib/trainerDb";
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
-import { migrateDateKeysToWeekdays, todayISO, weekdayFromISO } from "../lib/programDates";
+import { migrateDateKeysToWeekdays, todayISO, weekdayFromISO, sortProgramDayKeys } from "../lib/programDates";
 import { StickySaveBar } from "./shared";
 import { WorkoutDatePicker } from "./workoutDatePicker";
 
@@ -67,7 +67,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
           journal[key] = (journal[key] || []).map(normalizeRow);
         }
         setDays(journal);
-        setActiveDay(Object.keys(journal)[0] || "Пн");
+        setActiveDay(sortProgramDayKeys(Object.keys(journal))[0] || "Пн");
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -75,7 +75,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     return () => { cancelled = true; };
   }, [clientCode, disabled]);
 
-  const dayKeys = days ? Object.keys(days) : [];
+  const dayKeys = days ? sortProgramDayKeys(Object.keys(days)) : [];
 
   const handleDateChange = (iso) => {
     setDate(iso);
