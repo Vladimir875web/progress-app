@@ -788,7 +788,7 @@ function ExerciseProgress({ logs, program }) {
 /* ───────── METRICS TAB ───────── */
 
 const EMPTY_METRICS_FORM = {
-  weight: "", waist: "", chest: "", pulse: "", sleep: "",
+  weight: "", waist: "", chest: "",
   custom: {},
 };
 
@@ -797,8 +797,6 @@ function buildMetricsForm(entry, customFields) {
   form.weight = entry?.weight ?? "";
   form.waist = entry?.waist ?? "";
   form.chest = entry?.chest ?? "";
-  form.pulse = entry?.pulse ?? "";
-  form.sleep = entry?.sleep ?? "";
   customFields.forEach((f) => {
     if (form.custom[f.id] === undefined) form.custom[f.id] = entry?.custom?.[f.id] ?? "";
   });
@@ -829,8 +827,6 @@ function MetricsTab() {
         weight: form.weight,
         waist: form.waist,
         chest: form.chest,
-        pulse: form.pulse,
-        sleep: form.sleep,
         custom: form.custom,
       },
     });
@@ -868,7 +864,7 @@ function MetricsTab() {
     label: fmtDateLoc(m.date),
     weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
-    pulse: m.pulse ? parseFloat(m.pulse) : null,
+    chest: m.chest ? parseFloat(m.chest) : null,
     ...Object.fromEntries(customFields.map((f) => [
       f.id,
       m.custom?.[f.id] ? parseFloat(m.custom[f.id]) : null,
@@ -889,24 +885,17 @@ function MetricsTab() {
         <FieldRow icon={<Scale size={15} color="#e0a940" />} label={t("weightKg")}><input type="number" step="0.1" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} /></FieldRow>
         <FieldRow icon={<Ruler size={15} color="#e0a940" />} label={t("waistCm")}><input type="number" step="0.5" value={form.waist} onChange={(e) => setForm({ ...form, waist: e.target.value })} /></FieldRow>
         <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label={t("chestCmOpt")}><input type="number" step="0.5" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} /></FieldRow>
-        <FieldRow icon={<Activity size={15} color="#e0a940" />} label={t("pulseMorning")}><input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} /></FieldRow>
-        <FieldRow icon={<StickyNote size={15} color="#7a8fa8" />} label={t("sleepOpt")}><input type="number" step="0.5" placeholder="7.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} /></FieldRow>
 
-        {customFields.length > 0 && (
-          <div style={{ borderTop: "1px solid #2b344a", marginTop: 6, paddingTop: 14 }}>
-            <div style={{ fontSize: 12, color: "#808a9e", fontWeight: 600, marginBottom: 10 }}>{t("customParams")}</div>
-            {customFields.map((field) => (
-              <FieldRow key={field.id} icon={<Ruler size={15} color="#e0a940" />} label={field.unit ? `${field.label}, ${field.unit}` : field.label}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input type="number" step="0.1" value={form.custom[field.id] ?? ""} onChange={(e) => setCustomValue(field.id, e.target.value)} style={{ flex: 1 }} />
-                  <button onClick={() => removeCustomField(field.id)} title={t("removeParam")} style={{ background: "none", border: "none", padding: 4, flexShrink: 0 }}>
-                    <Trash2 size={14} color="#5a6378" />
-                  </button>
-                </div>
-              </FieldRow>
-            ))}
-          </div>
-        )}
+        {customFields.map((field) => (
+          <FieldRow key={field.id} icon={<Ruler size={15} color="#e0a940" />} label={field.unit ? `${field.label}, ${field.unit}` : field.label}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" step="0.1" value={form.custom[field.id] ?? ""} onChange={(e) => setCustomValue(field.id, e.target.value)} style={{ flex: 1 }} />
+              <button onClick={() => removeCustomField(field.id)} title={t("removeParam")} style={{ background: "none", border: "none", padding: 4, flexShrink: 0 }}>
+                <Trash2 size={14} color="#5a6378" />
+              </button>
+            </div>
+          </FieldRow>
+        ))}
 
         {addingField ? (
           <div style={{ borderTop: "1px solid #2b344a", marginTop: 10, paddingTop: 14 }}>
@@ -938,7 +927,6 @@ function MetricsTab() {
         <>
           <ChartBlock title={t("weightKg")} data={chartData} dataKey="weight" color="#e0a940" />
           <ChartBlock title={t("waistCm")} data={chartData} dataKey="waist" color="#6b9eb8" />
-          <ChartBlock title={t("pulseMorning")} data={chartData} dataKey="pulse" color="#7a8fa8" refLine={90} />
           {customFields.map((field, i) => {
             const hasData = chartData.filter((d) => d[field.id] !== null).length >= 2;
             if (!hasData) return null;
@@ -957,7 +945,7 @@ function MetricsTab() {
                   <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDateLoc(m.date)}</span>
                   <span>{m.weight ? `${m.weight}${t("kg")}` : "—"}</span>
                   <span>{m.waist ? `${m.waist}${t("cm")}` : "—"}</span>
-                  <span>{m.pulse ? `${m.pulse}${t("bpm")}` : "—"}</span>
+                  <span>{m.chest ? `${m.chest}${t("cm")}` : "—"}</span>
                 </div>
                 {customFields.some((f) => m.custom?.[f.id]) && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11.5, marginTop: 4 }}>
@@ -1426,6 +1414,7 @@ function TrainerNotesPanel({ clientCode, disabled }) {
 
 function ClientMetricsView({ code, disabled }) {
   const [metrics, setMetrics] = useState(null);
+  const [customFields, setCustomFields] = useState([]);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
@@ -1433,8 +1422,14 @@ function ClientMetricsView({ code, disabled }) {
     (async () => {
       if (disabled || !cloudEnabled()) return;
       try {
-        const m = await fetchBodyMetricsMap(code);
-        if (!cancelled) setMetrics(m);
+        const [m, profile] = await Promise.all([
+          fetchBodyMetricsMap(code),
+          fetchClientProfile(code),
+        ]);
+        if (!cancelled) {
+          setMetrics(m);
+          setCustomFields(Array.isArray(profile.metricsFields) ? profile.metricsFields : []);
+        }
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -1452,8 +1447,13 @@ function ClientMetricsView({ code, disabled }) {
     weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
     chest: m.chest ? parseFloat(m.chest) : null,
-    pulse: m.pulse ? parseFloat(m.pulse) : null,
+    ...Object.fromEntries(customFields.map((f) => [
+      f.id,
+      m.custom?.[f.id] ? parseFloat(m.custom[f.id]) : null,
+    ])),
   }));
+
+  const customChartColors = ["#e0a940", "#7a8fa8", "#6b9eb8", "#8a9ec4", "#e2795a"];
 
   if (!metricRows.length) {
     return <div style={{ fontSize: 13, color: "#808a9e", padding: "24px 0", textAlign: "center" }}>Клиент ещё не вносил показатели</div>;
@@ -1466,20 +1466,31 @@ function ClientMetricsView({ code, disabled }) {
           <ChartBlock title="Вес, кг" data={chartData} dataKey="weight" color="#e0a940" />
           <ChartBlock title="Талия, см" data={chartData} dataKey="waist" color="#6b9eb8" />
           <ChartBlock title="Грудь, см" data={chartData} dataKey="chest" color="#7a8fa8" />
-          <ChartBlock title="Пульс, уд/мин" data={chartData} dataKey="pulse" color="#808a9e" />
+          {customFields.map((field, i) => {
+            const hasData = chartData.filter((d) => d[field.id] !== null).length >= 2;
+            if (!hasData) return null;
+            const title = field.unit ? `${field.label}, ${field.unit}` : field.label;
+            return <ChartBlock key={field.id} title={title} data={chartData} dataKey={field.id} color={customChartColors[i % customChartColors.length]} />;
+          })}
         </>
       )}
       <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, margin: "18px 0 8px" }}>ИСТОРИЯ ПОКАЗАТЕЛЕЙ</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {metricRows.slice().reverse().map((m) => (
           <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e", fontSize: 12.5 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, marginBottom: customFields.some((f) => m.custom?.[f.id]) ? 4 : 0 }}>
               <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDate(m.date)}</span>
               <span>{m.weight ? `${m.weight}кг` : "—"}</span>
               <span>{m.waist ? `${m.waist}см` : "—"}</span>
               <span>{m.chest ? `${m.chest}см` : "—"}</span>
-              <span>{m.pulse ? `${m.pulse}уд` : "—"}</span>
             </div>
+            {customFields.some((f) => m.custom?.[f.id]) && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11.5 }}>
+                {customFields.map((f) => m.custom?.[f.id] ? (
+                  <span key={f.id}>{f.label}: {m.custom[f.id]}{f.unit ? ` ${f.unit}` : ""}</span>
+                ) : null)}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -2,11 +2,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import {
   Dumbbell, Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
-  Calendar, Check, StickyNote
+  Calendar, Check, StickyNote, Trash2
 } from "lucide-react";
 import {
   fetchProgram, fetchWorkoutLogsMap, saveWorkoutLog,
-  fetchBodyMetricsMap, saveBodyMetric, cloudEnabled
+  fetchBodyMetricsMap, saveBodyMetric, fetchClientProfile, saveClientProfile, cloudEnabled
 } from "./lib/trainerDb";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets } from "./lib/workoutUtils";
 import { normalizeExercise } from "./lib/programFormat";
@@ -277,7 +277,7 @@ export function LinkedWorkoutTab({ clientCode }) {
   );
 }
 
-function LinkedExerciseProgress({ logs, program }) {
+export function LinkedExerciseProgress({ logs, program }) {
   const allExercises = useMemo(() => {
     const set = new Set();
     Object.values(program?.days || {}).forEach((exs) => exs.forEach((e) => set.add(e.name)));
@@ -326,7 +326,18 @@ function LinkedExerciseProgress({ logs, program }) {
   );
 }
 
-const EMPTY_METRICS = { weight: "", waist: "", chest: "", pulse: "", sleep: "", custom: {} };
+const EMPTY_METRICS = { weight: "", waist: "", chest: "", custom: {} };
+
+function buildLinkedMetricsForm(entry, customFields) {
+  const form = { ...EMPTY_METRICS, custom: { ...(entry?.custom || {}) } };
+  form.weight = entry?.weight ?? "";
+  form.waist = entry?.waist ?? "";
+  form.chest = entry?.chest ?? "";
+  customFields.forEach((f) => {
+    if (form.custom[f.id] === undefined) form.custom[f.id] = entry?.custom?.[f.id] ?? "";
+  });
+  return form;
+}
 
 function FieldRow({ icon, label, children }) {
   return (
@@ -357,20 +368,30 @@ function ChartBlock({ title, data, dataKey, color }) {
 export function LinkedMetricsTab({ clientCode }) {
   const { t, fmtDate: fmtDateLoc } = useClientLanguage();
   const [metrics, setMetrics] = useState({});
+  const [customFields, setCustomFields] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [date, setDate] = useState(todayISO());
   const [form, setForm] = useState(EMPTY_METRICS);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addingField, setAddingField] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldUnit, setNewFieldUnit] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!cloudEnabled()) { setLoadError(t("supabaseNotConfigured")); setLoaded(true); return; }
       try {
-        const map = await fetchBodyMetricsMap(clientCode);
-        if (!cancelled) setMetrics(map);
+        const [map, profile] = await Promise.all([
+          fetchBodyMetricsMap(clientCode),
+          fetchClientProfile(clientCode),
+        ]);
+        if (!cancelled) {
+          setMetrics(map);
+          setCustomFields(Array.isArray(profile.metricsFields) ? profile.metricsFields : []);
+        }
       } catch (e) {
         if (!cancelled) setLoadError(e.message);
       }
@@ -380,16 +401,40 @@ export function LinkedMetricsTab({ clientCode }) {
   }, [clientCode, t]);
 
   useEffect(() => {
-    const entry = metrics[date];
-    setForm({
-      weight: entry?.weight ?? "",
-      waist: entry?.waist ?? "",
-      chest: entry?.chest ?? "",
-      pulse: entry?.pulse ?? "",
-      sleep: entry?.sleep ?? "",
-      custom: entry?.custom || {},
+    setForm(buildLinkedMetricsForm(metrics[date], customFields));
+  }, [date, metrics, customFields]);
+
+  const persistCustomFields = async (nextFields) => {
+    setCustomFields(nextFields);
+    await saveClientProfile(clientCode, { metricsFields: nextFields });
+  };
+
+  const setCustomValue = (id, value) => {
+    setForm((prev) => ({ ...prev, custom: { ...prev.custom, [id]: value } }));
+  };
+
+  const addCustomField = async () => {
+    const label = newFieldLabel.trim();
+    if (!label) return;
+    const id = `c_${Date.now()}`;
+    const unit = newFieldUnit.trim();
+    const nextFields = [...customFields, { id, label, unit }];
+    await persistCustomFields(nextFields);
+    setForm((prev) => ({ ...prev, custom: { ...prev.custom, [id]: "" } }));
+    setNewFieldLabel("");
+    setNewFieldUnit(t("unitCm"));
+    setAddingField(false);
+  };
+
+  const removeCustomField = async (id) => {
+    const nextFields = customFields.filter((f) => f.id !== id);
+    await persistCustomFields(nextFields);
+    setForm((prev) => {
+      const nextCustom = { ...prev.custom };
+      delete nextCustom[id];
+      return { ...prev, custom: nextCustom };
     });
-  }, [date, metrics]);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -410,7 +455,14 @@ export function LinkedMetricsTab({ clientCode }) {
     label: fmtDateLoc(m.date),
     weight: m.weight ? parseFloat(m.weight) : null,
     waist: m.waist ? parseFloat(m.waist) : null,
+    chest: m.chest ? parseFloat(m.chest) : null,
+    ...Object.fromEntries(customFields.map((f) => [
+      f.id,
+      m.custom?.[f.id] ? parseFloat(m.custom[f.id]) : null,
+    ])),
   }));
+
+  const customChartColors = ["#e0a940", "#7a8fa8", "#6b9eb8", "#8a9ec4", "#e2795a"];
 
   if (!loaded) return <div style={{ padding: 40, textAlign: "center", color: "#808a9e" }}>{t("loading")}</div>;
   if (loadError) return <div style={{ padding: 40, textAlign: "center", color: "#e2795a" }}>{loadError}</div>;
@@ -434,12 +486,37 @@ export function LinkedMetricsTab({ clientCode }) {
         <FieldRow icon={<Ruler size={15} color="#6b9eb8" />} label={t("chestCm")}>
           <input type="number" step="0.1" value={form.chest} onChange={(e) => setForm({ ...form, chest: e.target.value })} style={inputStyle} />
         </FieldRow>
-        <FieldRow icon={<Activity size={15} color="#7a8fa8" />} label={t("restingPulse")}>
-          <input type="number" value={form.pulse} onChange={(e) => setForm({ ...form, pulse: e.target.value })} style={inputStyle} />
-        </FieldRow>
-        <FieldRow icon={<Calendar size={15} color="#808a9e" />} label={t("sleepHours")}>
-          <input type="number" step="0.5" value={form.sleep} onChange={(e) => setForm({ ...form, sleep: e.target.value })} style={inputStyle} />
-        </FieldRow>
+
+        {customFields.map((field) => (
+          <FieldRow key={field.id} icon={<Ruler size={15} color="#e0a940" />} label={field.unit ? `${field.label}, ${field.unit}` : field.label}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" step="0.1" value={form.custom[field.id] ?? ""} onChange={(e) => setCustomValue(field.id, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+              <button type="button" onClick={() => removeCustomField(field.id)} title={t("removeParam")} style={{ background: "none", border: "none", padding: 4, flexShrink: 0 }}>
+                <Trash2 size={14} color="#5a6378" />
+              </button>
+            </div>
+          </FieldRow>
+        ))}
+
+        {addingField ? (
+          <div style={{ borderTop: customFields.length ? "1px solid #2b344a" : "none", marginTop: customFields.length ? 10 : 0, paddingTop: customFields.length ? 14 : 0 }}>
+            <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 8 }}>{t("newParam")}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <input type="text" value={newFieldLabel} onChange={(e) => setNewFieldLabel(e.target.value)} placeholder={t("paramExample")} style={inputStyle} />
+              <input type="text" value={newFieldUnit} onChange={(e) => setNewFieldUnit(e.target.value)} placeholder={t("unitPlaceholder")} style={inputStyle} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={addCustomField} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>{t("add")}</button>
+              <button type="button" onClick={() => { setAddingField(false); setNewFieldLabel(""); setNewFieldUnit(t("unitCm")); }} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}>{t("cancel")}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => { setNewFieldUnit(t("unitCm")); setAddingField(true); }} style={{
+            width: "100%", marginTop: 12, padding: "11px 0", borderRadius: 8, border: "1px dashed #303a50",
+            background: "none", color: "#e0a940", fontWeight: 600, fontSize: 13,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}><Plus size={14} /> {t("addCustomParam")}</button>
+        )}
       </div>
 
       <button onClick={handleSave} disabled={saving} style={{
@@ -452,6 +529,12 @@ export function LinkedMetricsTab({ clientCode }) {
         <>
           <ChartBlock title={t("weightKg")} data={chartData} dataKey="weight" color="#e0a940" />
           <ChartBlock title={t("waistCm")} data={chartData} dataKey="waist" color="#6b9eb8" />
+          {customFields.map((field, i) => {
+            const hasData = chartData.filter((d) => d[field.id] !== null).length >= 2;
+            if (!hasData) return null;
+            const title = field.unit ? `${field.label}, ${field.unit}` : field.label;
+            return <ChartBlock key={field.id} title={title} data={chartData} dataKey={field.id} color={customChartColors[i % customChartColors.length]} />;
+          })}
         </>
       )}
 
@@ -461,12 +544,19 @@ export function LinkedMetricsTab({ clientCode }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {sorted.slice().reverse().slice(0, 10).map((m) => (
               <div key={m.date} style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 6, padding: "8px 10px", color: "#808a9e" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: customFields.some((f) => m.custom?.[f.id]) ? 4 : 0 }}>
                   <span style={{ color: "#e8ecf5", fontWeight: 600 }}>{fmtDateLoc(m.date)}</span>
                   <span>{m.weight ? `${m.weight}${t("kg")}` : "—"}</span>
                   <span>{m.waist ? `${m.waist}${t("cm")}` : "—"}</span>
-                  <span>{m.pulse ? `${m.pulse}${t("bpm")}` : "—"}</span>
+                  <span>{m.chest ? `${m.chest}${t("cm")}` : "—"}</span>
                 </div>
+                {customFields.some((f) => m.custom?.[f.id]) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11.5, marginTop: 4 }}>
+                    {customFields.map((f) => m.custom?.[f.id] ? (
+                      <span key={f.id}>{f.label}: {m.custom[f.id]}{f.unit ? ` ${f.unit}` : ""}</span>
+                    ) : null)}
+                  </div>
+                )}
               </div>
             ))}
           </div>

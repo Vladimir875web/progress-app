@@ -114,9 +114,16 @@ export async function fetchClientProfile(clientCode) {
 
 export async function saveClientProfile(clientCode, profile) {
   requireSupabase();
+  const { data, error: fetchError } = await supabase
+    .from("clients")
+    .select("profile")
+    .eq("code", clientCode)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  const merged = { ...(data?.profile || {}), ...profile };
   const { error } = await supabase
     .from("clients")
-    .update({ profile })
+    .update({ profile: merged })
     .eq("code", clientCode);
   if (error) throw error;
 }
