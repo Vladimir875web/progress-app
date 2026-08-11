@@ -29,6 +29,7 @@ function initSetsFromTrainerDay(exercises, existingEntry, logs, day, date) {
     const ex = normalizeExercise(raw);
     const prev = existingEntry?.exercises?.find((e) => e.name === ex.name);
     const numSets = parseNumSets(ex.target) || ex.sets?.length || 3;
+    const defaultWeight = raw.weight != null ? String(raw.weight) : "";
     if (prev?.sets?.length) {
       return {
         name: ex.name, target: ex.target,
@@ -55,7 +56,7 @@ function initSetsFromTrainerDay(exercises, existingEntry, logs, day, date) {
     }
     return {
       name: ex.name, target: ex.target,
-      sets: buildExerciseSets({ numSets, savedSets: null, lastSets: null }),
+      sets: Array.from({ length: numSets }, () => ({ weight: defaultWeight, reps: "" })),
       comment: "",
       showComment: false,
     };

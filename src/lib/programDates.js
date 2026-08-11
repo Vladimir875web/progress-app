@@ -6,6 +6,10 @@ export function isProgramDateKey(key) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(key));
 }
 
+export function weekdayFromISO(iso) {
+  return RU_DOW[new Date(iso + "T00:00:00").getDay()];
+}
+
 /** ISO-даты из календарной версии → дни недели (Пн, Ср…). */
 export function migrateDateKeysToWeekdays(days) {
   const out = {};

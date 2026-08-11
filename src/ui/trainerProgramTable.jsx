@@ -3,13 +3,44 @@ import { Plus, Trash2, X, ChevronUp, ChevronDown } from "lucide-react";
 import { cloudEnabled, fetchProgram, saveProgramDays } from "../lib/trainerDb";
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
-import { migrateDateKeysToWeekdays } from "../lib/programDates";
+import { migrateDateKeysToWeekdays, todayISO, weekdayFromISO } from "../lib/programDates";
 import { StickySaveBar } from "./shared";
+import { WorkoutDatePicker } from "./workoutDatePicker";
 
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
   borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%", fontFamily: "'Inter', sans-serif",
 };
+
+function normalizeRow(ex) {
+  return {
+    name: ex?.name || "",
+    target: ex?.target || "3×10–12",
+    weight: ex?.weight != null ? String(ex.weight) : "",
+  };
+}
+
+function SchemeWeightRow({ target, weight, onTarget, onWeight, targetPlaceholder = "3×10–12" }) {
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      <input
+        type="text"
+        value={target}
+        onChange={(e) => onTarget(e.target.value)}
+        placeholder={targetPlaceholder}
+        style={{ ...inputStyle, fontSize: 13, flex: 1 }}
+      />
+      <input
+        type="text"
+        inputMode="decimal"
+        value={weight}
+        onChange={(e) => onWeight(e.target.value)}
+        placeholder="Вес"
+        style={{ ...inputStyle, fontSize: 13, width: 72, flexShrink: 0 }}
+      />
+    </div>
+  );
+}
 
 export function TrainerProgramTable({ clientCode, disabled }) {
   const [days, setDays] = useState(null);
@@ -17,8 +48,9 @@ export function TrainerProgramTable({ clientCode, disabled }) {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [activeDay, setActiveDay] = useState("Пн");
+  const [date, setDate] = useState(todayISO);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newEx, setNewEx] = useState({ name: "", target: "3×10–12" });
+  const [newEx, setNewEx] = useState({ name: "", target: "3×10–12", weight: "" });
   const [addingDay, setAddingDay] = useState(false);
   const [newDayKey, setNewDayKey] = useState("");
 
@@ -31,6 +63,9 @@ export function TrainerProgramTable({ clientCode, disabled }) {
         if (cancelled) return;
         let journal = migrateDateKeysToWeekdays(toJournalProgramDays(p.days || {}));
         if (!Object.keys(journal).length) journal = { ...DEFAULT_JOURNAL_PROGRAM };
+        for (const key of Object.keys(journal)) {
+          journal[key] = (journal[key] || []).map(normalizeRow);
+        }
         setDays(journal);
         setActiveDay(Object.keys(journal)[0] || "Пн");
       } catch (e) {
@@ -40,11 +75,18 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     return () => { cancelled = true; };
   }, [clientCode, disabled]);
 
+  const dayKeys = days ? Object.keys(days) : [];
+
+  const handleDateChange = (iso) => {
+    setDate(iso);
+    const dow = weekdayFromISO(iso);
+    if (days && days[dow]) setActiveDay(dow);
+  };
+
   if (disabled) return <div style={{ color: "#808a9e", fontSize: 13 }}>Облако недоступно</div>;
   if (loadError) return <div style={{ color: "#e2795a", fontSize: 13 }}>{loadError}</div>;
   if (!days) return <div style={{ color: "#808a9e", fontSize: 13 }}>Загрузка…</div>;
 
-  const dayKeys = Object.keys(days);
   const exercises = days[activeDay] || [];
 
   const updateExercise = (idx, field, value) => {
@@ -71,8 +113,11 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     const name = newEx.name.trim();
     const target = newEx.target.trim() || "3×10–12";
     if (!name) return;
-    setDays({ ...days, [activeDay]: [...exercises, { name, target }] });
-    setNewEx({ name: "", target: "3×10–12" });
+    setDays({
+      ...days,
+      [activeDay]: [...exercises, { name, target, weight: newEx.weight.trim() }],
+    });
+    setNewEx({ name: "", target: "3×10–12", weight: "" });
     setShowAddForm(false);
   };
 
@@ -125,6 +170,8 @@ export function TrainerProgramTable({ clientCode, disabled }) {
         )}
       </div>
 
+      <WorkoutDatePicker value={date} onChange={handleDateChange} />
+
       {addingDay && (
         <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 12, marginBottom: 12 }}>
           <input type="text" value={newDayKey} onChange={(e) => setNewDayKey(e.target.value)}
@@ -156,7 +203,12 @@ export function TrainerProgramTable({ clientCode, disabled }) {
           </div>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
             <input type="text" value={ex.name} onChange={(e) => updateExercise(idx, "name", e.target.value)} placeholder="Название упражнения" style={inputStyle} />
-            <input type="text" value={ex.target} onChange={(e) => updateExercise(idx, "target", e.target.value)} placeholder="3×10–12" style={{ ...inputStyle, fontSize: 13 }} />
+            <SchemeWeightRow
+              target={ex.target}
+              weight={ex.weight ?? ""}
+              onTarget={(v) => updateExercise(idx, "target", v)}
+              onWeight={(v) => updateExercise(idx, "weight", v)}
+            />
           </div>
           <button onClick={() => removeExercise(idx)} style={{ background: "none", border: "none", padding: 4, marginTop: 4 }}>
             <Trash2 size={15} color="#5a6378" />
@@ -168,10 +220,16 @@ export function TrainerProgramTable({ clientCode, disabled }) {
         <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 10, padding: 14, marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#808a9e" }}>Новое упражнение</div>
           <input type="text" placeholder="Название" value={newEx.name} onChange={(e) => setNewEx({ ...newEx, name: e.target.value })} style={{ ...inputStyle, marginBottom: 8 }} />
-          <input type="text" placeholder="3×10–12" value={newEx.target} onChange={(e) => setNewEx({ ...newEx, target: e.target.value })} style={{ ...inputStyle, marginBottom: 10 }} />
-          <div style={{ display: "flex", gap: 8 }}>
+          <SchemeWeightRow
+            target={newEx.target}
+            weight={newEx.weight}
+            onTarget={(v) => setNewEx({ ...newEx, target: v })}
+            onWeight={(v) => setNewEx({ ...newEx, weight: v })}
+            targetPlaceholder="3×10–12"
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={addExercise} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#e0a940", color: "#120f08", fontWeight: 700 }}>Добавить</button>
-            <button onClick={() => { setShowAddForm(false); setNewEx({ name: "", target: "3×10–12" }); }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}><X size={16} /></button>
+            <button onClick={() => { setShowAddForm(false); setNewEx({ name: "", target: "3×10–12", weight: "" }); }} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #303a50", background: "none", color: "#808a9e" }}><X size={16} /></button>
           </div>
         </div>
       ) : (

@@ -65,6 +65,7 @@ export function toJournalExercise(ex) {
   return {
     name: norm.name,
     target: norm.target || "3×10–12",
+    weight: ex?.weight != null ? String(ex.weight) : "",
   };
 }
 
@@ -80,10 +81,15 @@ export function serializeJournalProgramDays(days) {
   const out = {};
   for (const [day, exercises] of Object.entries(days || {})) {
     out[day] = (exercises || [])
-      .map((ex) => ({
-        name: String(ex?.name || "").trim(),
-        target: String(ex?.target || "3×10–12").trim() || "3×10–12",
-      }))
+      .map((ex) => {
+        const row = {
+          name: String(ex?.name || "").trim(),
+          target: String(ex?.target || "3×10–12").trim() || "3×10–12",
+        };
+        const weight = String(ex?.weight ?? "").trim();
+        if (weight) row.weight = weight;
+        return row;
+      })
       .filter((ex) => ex.name);
   }
   return out;
