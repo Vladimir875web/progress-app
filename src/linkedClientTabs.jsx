@@ -12,6 +12,7 @@ import { buildExerciseSets, findLastExerciseSets, parseNumSets } from "./lib/wor
 import { normalizeExercise } from "./lib/programFormat";
 import { migrateDateKeysToWeekdays } from "./lib/programDates";
 import { SyncIndicator, StickySaveBar } from "./ui/shared";
+import { WorkoutDatePicker } from "./ui/workoutDatePicker";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
@@ -192,10 +193,7 @@ export function LinkedWorkoutTab({ clientCode }) {
         ))}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-        <Calendar size={15} color="#808a9e" />
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 150 }} />
-      </div>
+      <WorkoutDatePicker value={date} onChange={setDate} />
 
       {sets.map((ex, exIdx) => {
         const vol = setVolume(ex.sets);
