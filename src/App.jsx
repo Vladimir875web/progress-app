@@ -15,7 +15,7 @@ import {
   shouldShowStartDebug, hasDeepLinkHint, getTelegramStartCode
 } from "./lib/telegram";
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
-import { LinkedMetricsTab } from "./linkedClientTabs";
+import { LinkedWorkoutTab, LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
 import { StartParamDebugBanner } from "./ui/clientPrompts";
@@ -1308,11 +1308,13 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
       <div className="display" style={{ fontSize: 26, marginBottom: 14 }}>{client.name}</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Тренировка" />
+        <SubTab active={tab === "programEdit"} onClick={() => setTab("programEdit")} label="Программа" />
         <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
         <SubTab active={tab === "progress"} onClick={() => setTab("progress")} label="Прогресс" />
         <SubTab active={tab === "link"} onClick={() => setTab("link")} label="Ссылка" />
       </div>
-      {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
+      {tab === "program" && <LinkedWorkoutTab clientCode={client.code} />}
+      {tab === "programEdit" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
       {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
       {tab === "progress" && <ClientWorkoutProgressView code={client.code} disabled={cloudDisabled} />}
       {tab === "link" && (
