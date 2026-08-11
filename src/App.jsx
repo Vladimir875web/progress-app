@@ -18,6 +18,7 @@ import {
 import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUtil } from "./lib/workoutUtils";
 import { LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
+import { ClientMembershipPanel } from "./ui/clientMembership";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
 import { StartParamDebugBanner } from "./ui/clientPrompts";
 import { ClientLanguageProvider, LanguageSwitcher, useClientLanguage } from "./ui/clientLanguage";
@@ -1304,6 +1305,28 @@ function AddClient({ onAdd, disabled }) {
 
 function ClientDetail({ client, onBack, cloudDisabled }) {
   const [tab, setTab] = useState("program");
+
+  return (
+    <div style={{ paddingTop: 18 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#808a9e", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
+      <div className="display" style={{ fontSize: 26, marginBottom: 14 }}>{client.name}</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
+        <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
+        <SubTab active={tab === "profile"} onClick={() => setTab("profile")} label="Профиль" />
+        <SubTab active={tab === "membership"} onClick={() => setTab("membership")} label="Абонемент" />
+        <SubTab active={tab === "notes"} onClick={() => setTab("notes")} label="Заметки" />
+      </div>
+      {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
+      {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
+      {tab === "profile" && <ClientProfileView code={client.code} disabled={cloudDisabled} />}
+      {tab === "membership" && <ClientMembershipPanel clientCode={client.code} disabled={cloudDisabled} />}
+      {tab === "notes" && <ClientNotesTab client={client} disabled={cloudDisabled} />}
+    </div>
+  );
+}
+
+function ClientNotesTab({ client, disabled }) {
   const [copied, setCopied] = useState(false);
   const inviteLink = buildInviteLink(client.code);
 
@@ -1318,43 +1341,28 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
   };
 
   return (
-    <div style={{ paddingTop: 18 }}>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#808a9e", fontSize: 13, marginBottom: 12, padding: 0 }}>← Все клиенты</button>
-      <div className="display" style={{ fontSize: 26, marginBottom: 14 }}>{client.name}</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
-        <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
-        <SubTab active={tab === "profile"} onClick={() => setTab("profile")} label="Профиль" />
-        <SubTab active={tab === "link"} onClick={() => setTab("link")} label="Ссылка" />
-      </div>
-      {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
-      {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
-      {tab === "profile" && <ClientProfileView code={client.code} disabled={cloudDisabled} />}
-      {tab === "link" && (
-        <div>
-          {inviteLink ? (
-            <button onClick={copyInvite} style={{
-              display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
-              background: "#171c29", border: "1px solid #2b344a", borderRadius: 8,
-              padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16, width: "100%",
-              textAlign: "left",
-            }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#e0a940", fontWeight: 600 }}>
-                <Link2 size={15} />
-                {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
-              </span>
-              <span style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all", color: "#5a6378" }}>{inviteLink}</span>
-            </button>
-          ) : (
-            <div style={{ fontSize: 12, color: "#808a9e", marginBottom: 16, lineHeight: 1.5 }}>
-              В Vercel укажи <code>VITE_TELEGRAM_BOT_USERNAME</code> = <strong>t_progress_tracker_bot</strong> и{" "}
-              <code>VITE_TELEGRAM_APP_SHORT_NAME</code> = <strong>app</strong> (только короткое имя, без t.me/).
-              Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span>
-            </div>
-          )}
-          <TrainerNotesPanel clientCode={client.code} disabled={cloudDisabled} />
+    <div>
+      {inviteLink ? (
+        <button onClick={copyInvite} style={{
+          display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4,
+          background: "#171c29", border: "1px solid #2b344a", borderRadius: 8,
+          padding: "10px 12px", color: "#808a9e", fontSize: 13, marginBottom: 16, width: "100%",
+          textAlign: "left",
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#e0a940", fontWeight: 600 }}>
+            <Link2 size={15} />
+            {copied ? "Ссылка скопирована!" : "Скопировать ссылку-приглашение"}
+          </span>
+          <span style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all", color: "#5a6378" }}>{inviteLink}</span>
+        </button>
+      ) : (
+        <div style={{ fontSize: 12, color: "#808a9e", marginBottom: 16, lineHeight: 1.5 }}>
+          В Vercel укажи <code>VITE_TELEGRAM_BOT_USERNAME</code> = <strong>t_progress_tracker_bot</strong> и{" "}
+          <code>VITE_TELEGRAM_APP_SHORT_NAME</code> = <strong>app</strong> (только короткое имя, без t.me/).
+          Код клиента: <span style={{ fontFamily: "monospace", color: "#e0a940" }}>{client.code}</span>
         </div>
       )}
+      <TrainerNotesPanel clientCode={client.code} disabled={disabled} />
     </div>
   );
 }

@@ -121,6 +121,49 @@ export async function saveClientProfile(clientCode, profile) {
   if (error) throw error;
 }
 
+const EMPTY_MEMBERSHIP = { remainingSessions: 0, payments: [] };
+
+function normalizeMembership(raw) {
+  const m = raw && typeof raw === "object" ? raw : {};
+  return {
+    remainingSessions: Math.max(0, Number(m.remainingSessions) || 0),
+    payments: Array.isArray(m.payments)
+      ? m.payments.map((p) => ({
+        id: p.id || `p_${Date.now()}`,
+        date: p.date || todayISO(),
+        amount: Number(p.amount) || 0,
+        sessions: Math.max(0, Number(p.sessions) || 0),
+        method: p.method || "cash",
+        note: p.note || "",
+      }))
+      : [],
+  };
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export async function fetchClientMembership(clientCode) {
+  requireSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("membership")
+    .eq("code", clientCode)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeMembership(data?.membership);
+}
+
+export async function saveClientMembership(clientCode, membership) {
+  requireSupabase();
+  const { error } = await supabase
+    .from("clients")
+    .update({ membership: normalizeMembership(membership) })
+    .eq("code", clientCode);
+  if (error) throw error;
+}
+
 export async function clientExists(code) {
   requireSupabase();
   const normalized = String(code).trim().toUpperCase();
