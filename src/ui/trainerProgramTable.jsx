@@ -8,7 +8,7 @@ import {
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
 import { migrateDateKeysToWeekdays, todayISO, weekdayFromISO, sortProgramDayKeys } from "../lib/programDates";
-import { initTrainerWorkoutSets, parseNumSets, newExerciseId } from "../lib/workoutUtils";
+import { initTrainerWorkoutSets, newExerciseId, DEFAULT_TRAINER_SET_ROWS } from "../lib/workoutUtils";
 import { StickySaveBar } from "./shared";
 import { WorkoutDatePicker } from "./workoutDatePicker";
 import { LinkedExerciseProgress } from "../linkedClientTabs";
@@ -166,12 +166,11 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     const name = newEx.name.trim();
     const target = newEx.target.trim() || "3×10–12";
     if (!name) return;
-    const numSets = parseNumSets(target) || 3;
     setSets((prev) => [...prev, {
       id: newExerciseId(),
       name,
       target,
-      sets: Array.from({ length: numSets }, () => ({ weight: "", reps: "" })),
+      sets: Array.from({ length: DEFAULT_TRAINER_SET_ROWS }, () => ({ weight: "", reps: "" })),
       comment: "",
       showComment: false,
     }]);
