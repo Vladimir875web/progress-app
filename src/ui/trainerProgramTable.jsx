@@ -8,7 +8,7 @@ import {
 import { toJournalProgramDays, serializeJournalProgramDays } from "../lib/programFormat";
 import { DEFAULT_JOURNAL_PROGRAM } from "../lib/defaultProgram";
 import { migrateDateKeysToWeekdays, todayISO, weekdayFromISO, sortProgramDayKeys } from "../lib/programDates";
-import { initTrainerWorkoutSets, parseNumSets } from "../lib/workoutUtils";
+import { initTrainerWorkoutSets, parseNumSets, newExerciseId } from "../lib/workoutUtils";
 import { StickySaveBar } from "./shared";
 import { WorkoutDatePicker } from "./workoutDatePicker";
 import { LinkedExerciseProgress } from "../linkedClientTabs";
@@ -168,6 +168,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
     if (!name) return;
     const numSets = parseNumSets(target) || 3;
     setSets((prev) => [...prev, {
+      id: newExerciseId(),
       name,
       target,
       sets: Array.from({ length: numSets }, () => ({ weight: "", reps: "" })),
@@ -208,7 +209,8 @@ export function TrainerProgramTable({ clientCode, disabled }) {
         notes,
         exercises: sets
           .filter((ex) => ex.name.trim())
-          .map(({ name, target, sets: exSets, comment }) => ({
+          .map(({ id, name, target, sets: exSets, comment }) => ({
+            id,
             name: name.trim(),
             target: target.trim() || "3×10–12",
             sets: exSets,
@@ -284,7 +286,7 @@ export function TrainerProgramTable({ clientCode, disabled }) {
       {sets.map((ex, exIdx) => {
         const vol = setVolume(ex.sets);
         return (
-          <div key={`${ex.name}-${exIdx}`} style={{
+          <div key={ex.id || exIdx} style={{
             background: "#171c29", border: "1px solid #2b344a", borderRadius: 10,
             padding: 12, marginBottom: 10,
           }}>

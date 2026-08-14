@@ -27,17 +27,26 @@ export function findLastWorkoutDate(logs, dayKey, currentDate, exName) {
   return null;
 }
 
+export function newExerciseId() {
+  return `ex_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 /** Инициализация подходов для тренера: сохранённая запись → прошлая тренировка → шаблон программы. */
 export function initTrainerWorkoutSets(exercises, existingEntry, logs, day, date) {
-  return (exercises || []).map((raw) => {
+  const savedList = existingEntry?.exercises || [];
+  return (exercises || []).map((raw, idx) => {
     const name = raw?.name || "";
     const target = raw?.target || "3×10–12";
-    const prev = existingEntry?.exercises?.find((e) => e.name === name);
+    const prev = savedList.find((e) => e.id && raw.id && e.id === raw.id)
+      || savedList.find((e) => e.name === name)
+      || savedList[idx];
+    const id = prev?.id || raw?.id || newExerciseId();
     const numSets = parseNumSets(target) || 3;
     const defaultWeight = raw.weight != null ? String(raw.weight) : "";
 
     if (prev?.sets?.length) {
       return {
+        id,
         name,
         target,
         sets: prev.sets.map((s) => ({ weight: s.weight ?? "", reps: s.reps ?? "" })),
@@ -54,6 +63,7 @@ export function initTrainerWorkoutSets(exercises, existingEntry, logs, day, date
       }));
       while (sets.length < numSets) sets.push({ weight: "", reps: "" });
       return {
+        id,
         name,
         target,
         sets: sets.slice(0, Math.max(numSets, sets.length)),
@@ -63,6 +73,7 @@ export function initTrainerWorkoutSets(exercises, existingEntry, logs, day, date
       };
     }
     return {
+      id,
       name,
       target,
       sets: Array.from({ length: numSets }, () => ({ weight: defaultWeight, reps: "" })),
