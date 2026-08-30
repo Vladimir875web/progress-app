@@ -1,3 +1,5 @@
--- Client training schedule (run in Supabase SQL Editor)
-alter table public.clients
-  add column if not exists schedule jsonb not null default '{"sessions":[]}'::jsonb;
+-- Расписание хранится в clients.profile.schedule (jsonb).
+-- Отдельная колонка schedule не нужна — достаточно миграции profile:
+-- supabase/add-client-profile.sql
+--
+-- Формат: { "sessions": [{ "id", "date", "time", "note" }] }

@@ -188,23 +188,12 @@ function normalizeSchedule(raw) {
 }
 
 export async function fetchClientSchedule(clientCode) {
-  requireSupabase();
-  const { data, error } = await supabase
-    .from("clients")
-    .select("schedule")
-    .eq("code", clientCode)
-    .maybeSingle();
-  if (error) throw error;
-  return normalizeSchedule(data?.schedule);
+  const profile = await fetchClientProfile(clientCode);
+  return normalizeSchedule(profile.schedule);
 }
 
 export async function saveClientSchedule(clientCode, schedule) {
-  requireSupabase();
-  const { error } = await supabase
-    .from("clients")
-    .update({ schedule: normalizeSchedule(schedule) })
-    .eq("code", clientCode);
-  if (error) throw error;
+  await saveClientProfile(clientCode, { schedule: normalizeSchedule(schedule) });
 }
 
 export async function clientExists(code) {
