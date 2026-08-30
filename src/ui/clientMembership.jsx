@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Plus, Minus, CreditCard, Banknote, ArrowRightLeft } from "lucide-react";
 import { cloudEnabled, fetchClientMembership, saveClientMembership } from "../lib/trainerDb";
-
+import { useClientLanguage } from "./clientLanguage";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
 const fmtMoney = (n) => `${Number(n).toLocaleString("cs-CZ")} CZK`;
@@ -32,7 +32,8 @@ const dateInputStyle = {
 
 const SESSION_PRESETS = ["1", "8", "10", "12", "16"];
 
-export function ClientMembershipPanel({ clientCode, disabled }) {
+export function ClientMembershipPanel({ clientCode, disabled, readOnly = false }) {
+  const { t } = useClientLanguage();
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -110,7 +111,7 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
         border: `1px solid ${isEmpty ? "#5a3a3a" : isLow ? "#6a5a30" : "#2b344a"}`,
         borderRadius: 14, padding: "18px 16px", marginBottom: 14,
       }}>
-        <div style={{ fontSize: 12, color: "#808a9e", fontWeight: 600, marginBottom: 6 }}>ОСТАЛОСЬ ТРЕНИРОВОК</div>
+        <div style={{ fontSize: 12, color: "#808a9e", fontWeight: 600, marginBottom: 6 }}>{t("remainingSessions")}</div>
         <div className="display" style={{
           fontSize: 52, lineHeight: 1, color: isEmpty ? "#c45a4a" : isLow ? "#e0a940" : "#e8ecf5",
           marginBottom: 10,
@@ -123,9 +124,12 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
             <div style={{ fontSize: 11.5, color: "#5a6378" }}>из {lastPackageSessions} в последнем абонементе</div>
           </>
         )}
-        {isEmpty && <div style={{ fontSize: 12.5, color: "#e2795a", marginTop: 8 }}>Абонемент закончился — запиши оплату</div>}
+        {isEmpty && !readOnly && <div style={{ fontSize: 12.5, color: "#e2795a", marginTop: 8 }}>Абонемент закончился — запиши оплату</div>}
+        {isEmpty && readOnly && <div style={{ fontSize: 12.5, color: "#e2795a", marginTop: 8 }}>{t("membershipEmptyClient")}</div>}
+        {isLow && readOnly && <div style={{ fontSize: 12.5, color: "#e0a940", marginTop: 8 }}>{t("membershipLowClient")}</div>}
       </div>
 
+      {!readOnly && (
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <button
           type="button"
@@ -152,8 +156,9 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
           <Plus size={16} /> Оплата
         </button>
       </div>
+      )}
 
-      {showForm && (
+      {!readOnly && showForm && (
         <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 12, padding: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#e0a940", marginBottom: 12 }}>Новая оплата</div>
           <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "stretch" }}>
@@ -236,6 +241,8 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
         </div>
       )}
 
+      {!readOnly && (
+      <>
       <div style={{ fontSize: 12.5, color: "#808a9e", fontWeight: 600, marginBottom: 8 }}>ИСТОРИЯ ОПЛАТ</div>
       {data.payments.length === 0 ? (
         <div style={{ fontSize: 13, color: "#5a6378", padding: "20px 0", textAlign: "center" }}>Оплат пока нет</div>
@@ -260,6 +267,8 @@ export function ClientMembershipPanel({ clientCode, disabled }) {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

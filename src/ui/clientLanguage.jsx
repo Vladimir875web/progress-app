@@ -37,7 +37,15 @@ export function ClientLanguageProvider({ children }) {
 
 export function useClientLanguage() {
   const ctx = useContext(ClientLanguageContext);
-  if (!ctx) throw new Error("useClientLanguage must be used within ClientLanguageProvider");
+  if (!ctx) {
+    return {
+      lang: "ru",
+      setLang: () => {},
+      t: (key) => getClientTranslation("ru", key),
+      fmtDate: (iso) => fmtClientDate(iso, "ru"),
+      deltaHint: (delta) => weightDeltaHint(delta, "ru"),
+    };
+  }
   return ctx;
 }
 

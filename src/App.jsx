@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import {
   Activity, Plus, ChevronDown, ChevronUp, Save, TrendingUp, Ruler, Scale,
   Calendar, Check, Download, Upload, StickyNote, Users, User, Trash2, LogOut,
-  ChevronRight, Link2, AlertCircle
+  ChevronRight, Link2, AlertCircle, Ticket, CalendarDays
 } from "lucide-react";
 import {
   cloudEnabled, ensureTrainer, fetchClients, createClient, deleteClient,
@@ -19,6 +19,7 @@ import { buildExerciseSets, findLastExerciseSets, parseNumSets as parseNumSetsUt
 import { LinkedMetricsTab } from "./linkedClientTabs";
 import { TrainerProgramTable } from "./ui/trainerProgramTable";
 import { ClientMembershipPanel } from "./ui/clientMembership";
+import { ClientSchedulePanel } from "./ui/clientSchedule";
 import { RoleSwitchLink, StickySaveBar } from "./ui/shared";
 import { StartParamDebugBanner } from "./ui/clientPrompts";
 import { ClientLanguageProvider, LanguageSwitcher, useClientLanguage } from "./ui/clientLanguage";
@@ -374,6 +375,12 @@ function ClientAppContent({ onResetRole, startLinkError, startLinkSuccess, start
           )}
           <div style={{ display: "flex", gap: 4, marginTop: 4, overflowX: "auto" }}>
             <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")} icon={<Activity size={16} />} label={t("tabMetrics")} />
+            {clientCode && (
+              <>
+                <TabButton active={tab === "schedule"} onClick={() => setTab("schedule")} icon={<CalendarDays size={16} />} label={t("tabSchedule")} />
+                <TabButton active={tab === "membership"} onClick={() => setTab("membership")} icon={<Ticket size={16} />} label={t("tabMembership")} />
+              </>
+            )}
             <TabButton active={tab === "profile"} onClick={() => setTab("profile")} icon={<Scale size={16} />} label={t("tabProfile")} />
           </div>
         </div>
@@ -382,6 +389,12 @@ function ClientAppContent({ onResetRole, startLinkError, startLinkSuccess, start
         {tab === "metrics" && (clientCode
           ? <LinkedMetricsTab key={clientCode + reloadKey} clientCode={clientCode} />
           : <MetricsTab key={reloadKey} />)}
+        {tab === "schedule" && clientCode && (
+          <ClientSchedulePanel key={clientCode + reloadKey} clientCode={clientCode} readOnly />
+        )}
+        {tab === "membership" && clientCode && (
+          <ClientMembershipPanel key={clientCode + reloadKey} clientCode={clientCode} readOnly />
+        )}
         {tab === "profile" && (
           <ProfileTab key={reloadKey} clientCode={clientCode}
             onLinked={handleLinked} onUnlink={handleUnlink} onResetRole={onResetRole} />
@@ -1302,12 +1315,14 @@ function ClientDetail({ client, onBack, cloudDisabled }) {
         <SubTab active={tab === "program"} onClick={() => setTab("program")} label="Программа" />
         <SubTab active={tab === "metrics"} onClick={() => setTab("metrics")} label="Показатели" />
         <SubTab active={tab === "profile"} onClick={() => setTab("profile")} label="Профиль" />
+        <SubTab active={tab === "schedule"} onClick={() => setTab("schedule")} label="Расписание" />
         <SubTab active={tab === "membership"} onClick={() => setTab("membership")} label="Абонемент" />
         <SubTab active={tab === "notes"} onClick={() => setTab("notes")} label="Заметки" />
       </div>
       {tab === "program" && <TrainerProgramTable clientCode={client.code} disabled={cloudDisabled} />}
       {tab === "metrics" && <ClientMetricsView code={client.code} disabled={cloudDisabled} />}
       {tab === "profile" && <ClientProfileView code={client.code} disabled={cloudDisabled} />}
+      {tab === "schedule" && <ClientSchedulePanel clientCode={client.code} disabled={cloudDisabled} />}
       {tab === "membership" && <ClientMembershipPanel clientCode={client.code} disabled={cloudDisabled} />}
       {tab === "notes" && <ClientNotesTab client={client} disabled={cloudDisabled} />}
     </div>

@@ -171,6 +171,42 @@ export async function saveClientMembership(clientCode, membership) {
   if (error) throw error;
 }
 
+const EMPTY_SCHEDULE = { sessions: [] };
+
+function normalizeSchedule(raw) {
+  const s = raw && typeof raw === "object" ? raw : {};
+  const sessions = Array.isArray(s.sessions)
+    ? s.sessions.map((item) => ({
+      id: item.id || `sch_${Date.now()}`,
+      date: item.date || todayISO(),
+      time: String(item.time || "18:00").slice(0, 5),
+      note: item.note || "",
+    }))
+    : [];
+  sessions.sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`));
+  return { sessions };
+}
+
+export async function fetchClientSchedule(clientCode) {
+  requireSupabase();
+  const { data, error } = await supabase
+    .from("clients")
+    .select("schedule")
+    .eq("code", clientCode)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeSchedule(data?.schedule);
+}
+
+export async function saveClientSchedule(clientCode, schedule) {
+  requireSupabase();
+  const { error } = await supabase
+    .from("clients")
+    .update({ schedule: normalizeSchedule(schedule) })
+    .eq("code", clientCode);
+  if (error) throw error;
+}
+
 export async function clientExists(code) {
   requireSupabase();
   const normalized = String(code).trim().toUpperCase();
