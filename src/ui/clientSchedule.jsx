@@ -5,10 +5,28 @@ import { useClientLanguage } from "./clientLanguage";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+const FORM_INPUT_HEIGHT = 38;
+
 const inputStyle = {
   background: "#1b212f", border: "1px solid #303a50", color: "#e8ecf5",
-  borderRadius: 8, padding: "8px 10px", fontSize: 15, width: "100%",
-  boxSizing: "border-box", fontFamily: "'Inter', sans-serif", colorScheme: "dark",
+  borderRadius: 8, padding: "0 8px", fontSize: 14, width: "100%", minWidth: 0,
+  height: FORM_INPUT_HEIGHT, lineHeight: `${FORM_INPUT_HEIGHT - 2}px`,
+  boxSizing: "border-box", fontFamily: "'Inter', sans-serif",
+};
+
+const dateInputStyle = {
+  ...inputStyle,
+  fontSize: 13,
+  colorScheme: "dark",
+  appearance: "none",
+  WebkitAppearance: "none",
+};
+
+const timeInputStyle = {
+  ...inputStyle,
+  fontSize: 14,
+  colorScheme: "dark",
+  textAlign: "center",
 };
 
 const TIME_PRESETS = ["09:00", "10:00", "12:00", "17:00", "18:00", "19:00"];
@@ -162,21 +180,21 @@ export function ClientSchedulePanel({ clientCode, disabled, readOnly = false }) 
           ) : (
             <div style={{ background: "#171c29", border: "1px solid #2b344a", borderRadius: 12, padding: 14, marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#e0a940", marginBottom: 12 }}>{t("newWorkoutSlot")}</div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <label style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 8, marginBottom: 8, alignItems: "end" }}>
+                <label style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>{t("date")}</div>
-                  <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={inputStyle} />
+                  <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={dateInputStyle} />
                 </label>
-                <label style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: "#808a9e", marginBottom: 4 }}>{t("time")}</div>
-                  <input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} style={inputStyle} />
+                  <input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} style={timeInputStyle} />
                 </label>
               </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
                 {TIME_PRESETS.map((time) => (
                   <button key={time} type="button" onClick={() => setForm({ ...form, time })}
                     style={{
-                      padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      padding: "5px 8px", borderRadius: 8, fontSize: 11.5, fontWeight: 600,
                       border: form.time === time ? "1px solid #e0a940" : "1px solid #303a50",
                       background: form.time === time ? "rgba(224,169,64,0.12)" : "#1b212f",
                       color: form.time === time ? "#e0a940" : "#808a9e",
