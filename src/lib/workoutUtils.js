@@ -83,10 +83,7 @@ export function initTrainerWorkoutSets(exercises, existingEntry, logs, day, date
         id,
         name,
         target,
-        sets: normalizeTrainerSetRows(
-          lastSets.slice(0, DEFAULT_TRAINER_SET_ROWS),
-          defaultWeight,
-        ),
+        sets: normalizeTrainerSetRows(lastSets, defaultWeight),
         comment: "",
         showComment: false,
         prefilledFrom: lastDate,
